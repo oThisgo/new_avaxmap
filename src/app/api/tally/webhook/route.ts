@@ -14,7 +14,7 @@ const SIGNING_SECRET = process.env.TALLY_SIGNING_SECRET
  */
 function verifySignature(rawBody: string, signature: string | null, secret: string): boolean {
   if (!signature) return false
-  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('base64')
   try {
     return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
   } catch {
