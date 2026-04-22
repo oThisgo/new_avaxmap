@@ -2,6 +2,8 @@
 
 import { useState, useRef, DragEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTheme } from '@/components/ThemeProvider'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 interface UploadResult {
   ok: boolean
@@ -13,6 +15,17 @@ interface UploadResult {
 
 export default function UploadCollaboratorsPage() {
   const router = useRouter()
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const T = {
+    bg: isDark ? '#111111' : '#F8F8F8',
+    surface: isDark ? '#1A1A1A' : '#FFFFFF',
+    surface2: isDark ? '#222222' : '#F5F5F5',
+    border: isDark ? '#2A2A2A' : '#E5E5E5',
+    text: isDark ? '#FFFFFF' : '#111111',
+    textMuted: isDark ? '#A3A3A3' : '#737373',
+    textFaint: isDark ? '#525252' : '#A3A3A3',
+  }
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -72,28 +85,31 @@ export default function UploadCollaboratorsPage() {
   }
 
   return (
-    <div className="min-h-screen p-6" style={{ backgroundColor: '#111111', color: '#FFFFFF' }}>
+    <div className="min-h-screen p-6" style={{ backgroundColor: T.bg, color: T.text }}>
       {/* Header */}
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-8">
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="flex items-center gap-1.5 text-sm transition-colors"
-            style={{ color: '#A3A3A3' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#FFFFFF')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#A3A3A3')}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            Dashboard
-          </button>
-          <span style={{ color: '#2A2A2A' }}>/</span>
-          <span className="text-sm" style={{ color: '#FFFFFF' }}>Importar Colaboradores</span>
+        <div className="flex items-center justify-between gap-3 mb-8">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="flex items-center gap-1.5 text-sm transition-colors"
+              style={{ color: T.textMuted }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = T.text)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = T.textMuted)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              Dashboard
+            </button>
+            <span style={{ color: T.border }}>/</span>
+            <span className="text-sm" style={{ color: T.text }}>Importar Colaboradores</span>
+          </div>
+          <ThemeToggle />
         </div>
 
         <h1 className="text-2xl font-semibold mb-1">Importar Colaboradores</h1>
-        <p className="text-sm mb-8" style={{ color: '#A3A3A3' }}>
+        <p className="text-sm mb-8" style={{ color: T.textMuted }}>
           Faça upload do CSV de dados demográficos. CPFs já cadastrados terão seus dados atualizados sem resetar respostas. Novos CPFs serão inseridos. CPFs removidos do CSV permanecem no banco.
         </p>
 
@@ -105,8 +121,8 @@ export default function UploadCollaboratorsPage() {
           onClick={() => inputRef.current?.click()}
           className="rounded-xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors"
           style={{
-            backgroundColor: dragging ? '#1F1F1F' : '#1A1A1A',
-            border: `2px dashed ${dragging ? '#F5C200' : file ? '#22C55E' : '#2A2A2A'}`,
+            backgroundColor: dragging ? T.surface2 : T.surface,
+            border: `2px dashed ${dragging ? '#F5C200' : file ? '#22C55E' : T.border}`,
           }}
         >
           <input
@@ -131,24 +147,24 @@ export default function UploadCollaboratorsPage() {
             </div>
           ) : (
             <div className="text-center">
-              <p className="font-medium" style={{ color: '#A3A3A3' }}>Arraste o arquivo aqui ou clique para selecionar</p>
-              <p className="text-xs mt-0.5" style={{ color: '#525252' }}>Apenas .csv</p>
+              <p className="font-medium" style={{ color: T.textMuted }}>Arraste o arquivo aqui ou clique para selecionar</p>
+              <p className="text-xs mt-0.5" style={{ color: T.textFaint }}>Apenas .csv</p>
             </div>
           )}
         </div>
 
         {/* Colunas esperadas */}
-        <div className="mt-4 rounded-xl p-4" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-          <p className="text-xs font-semibold mb-2" style={{ color: '#525252' }}>COLUNAS ESPERADAS NO CSV</p>
+        <div className="mt-4 rounded-xl p-4" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+          <p className="text-xs font-semibold mb-2" style={{ color: T.textFaint }}>COLUNAS ESPERADAS NO CSV</p>
           <div className="flex flex-wrap gap-2">
             {['Nome completo', 'CPF', 'Data de nascimento*', 'E-mail', 'Área', 'Cargo', 'Gênero*', 'Raça*', 'Idade*', 'Vínculo', 'Organização'].map((col) => (
               <span
                 key={col}
                 className="text-xs px-2 py-1 rounded-md"
                 style={{
-                  backgroundColor: col.endsWith('*') ? '#1F1F1F' : '#222222',
-                  color: col.endsWith('*') ? '#525252' : '#A3A3A3',
-                  border: '1px solid #2A2A2A',
+                  backgroundColor: col.endsWith('*') ? T.surface2 : T.surface2,
+                  color: col.endsWith('*') ? T.textFaint : T.textMuted,
+                  border: `1px solid ${T.border}`,
                   textDecoration: col.endsWith('*') ? 'line-through' : 'none',
                 }}
               >
@@ -156,7 +172,7 @@ export default function UploadCollaboratorsPage() {
               </span>
             ))}
           </div>
-          <p className="text-xs mt-2" style={{ color: '#525252' }}>* Colunas riscadas são ignoradas (coletadas no formulário)</p>
+          <p className="text-xs mt-2" style={{ color: T.textFaint }}>* Colunas riscadas são ignoradas (coletadas no formulário)</p>
         </div>
 
         {/* Botão */}
@@ -180,17 +196,17 @@ export default function UploadCollaboratorsPage() {
 
         {/* Resultado */}
         {result && (
-          <div className="mt-4 rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #22C55E40' }}>
+          <div className="mt-4 rounded-xl p-5" style={{ backgroundColor: T.surface, border: '1px solid #22C55E40' }}>
             <p className="font-semibold mb-3" style={{ color: '#22C55E' }}>Importação concluída</p>
             <div className="grid grid-cols-3 gap-3 mb-4">
               {[
-                { label: 'Total processado', value: result.total, color: '#FFFFFF' },
+                { label: 'Total processado', value: result.total, color: T.text },
                 { label: 'Novos inseridos', value: result.inserted, color: '#22C55E' },
                 { label: 'Atualizados', value: result.updated, color: '#F5C200' },
               ].map((s) => (
-                <div key={s.label} className="rounded-lg p-3 text-center" style={{ backgroundColor: '#222222' }}>
+                <div key={s.label} className="rounded-lg p-3 text-center" style={{ backgroundColor: T.surface2 }}>
                   <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
-                  <p className="text-xs mt-0.5" style={{ color: '#A3A3A3' }}>{s.label}</p>
+                  <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>{s.label}</p>
                 </div>
               ))}
             </div>

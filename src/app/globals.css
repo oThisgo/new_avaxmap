@@ -141,6 +141,20 @@ body {
   background: var(--color-text-muted);
 }
 
+/* Scrollbar no tema claro */
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #F0F0F0;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #D4D4D4;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #A3A3A3;
+}
+[data-theme="light"] {
+  scrollbar-color: #D4D4D4 #F0F0F0;
+}
+
 
 
 @layer base {

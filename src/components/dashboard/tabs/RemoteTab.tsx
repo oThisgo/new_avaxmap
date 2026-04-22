@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
 } from 'recharts'
+import { useTheme } from '@/components/ThemeProvider'
 
 const CLASS_COLORS: Record<string, string> = {
   'Condição adequada': '#22C55E',
@@ -21,6 +22,18 @@ interface DomainItem { name: string; avg_score: number; weight: number; classifi
 interface RemoteData { domains: DomainItem[]; class_distribution: { name: string; value: number }[]; avg_score: number | null }
 
 export default function RemoteTab({ query }: { query: string }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const T = {
+    surface: isDark ? '#1A1A1A' : '#FFFFFF',
+    border: isDark ? '#2A2A2A' : '#E5E5E5',
+    text: isDark ? '#FFFFFF' : '#111111',
+    textMuted: isDark ? '#A3A3A3' : '#737373',
+    textFaint: isDark ? '#525252' : '#A3A3A3',
+    axisX: isDark ? '#525252' : '#A3A3A3',
+    axisY: isDark ? '#A3A3A3' : '#737373',
+    cursor: isDark ? '#2A2A2A' : '#F0F0F0',
+  }
   const [data, setData] = useState<RemoteData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -32,22 +45,22 @@ export default function RemoteTab({ query }: { query: string }) {
       .catch(() => setLoading(false))
   }, [query])
 
-  if (loading) return <p className="text-sm" style={{ color: '#A3A3A3' }}>Carregando...</p>
+  if (loading) return <p className="text-sm" style={{ color: T.textMuted }}>Carregando...</p>
   if (!data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
 
   return (
     <div className="flex flex-col gap-6">
       {/* Score médio */}
-      <div className="rounded-xl p-5 flex flex-col gap-1" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-        <span className="text-xs uppercase tracking-wide" style={{ color: '#A3A3A3' }}>Score IETR Médio</span>
-        <span className="text-3xl font-bold">{data.avg_score != null ? `${data.avg_score.toFixed(2)} / 5.00` : '—'}</span>
+      <div className="rounded-xl p-5 flex flex-col gap-1" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <span className="text-xs uppercase tracking-wide" style={{ color: T.textMuted }}>Score IETR Médio</span>
+        <span className="text-3xl font-bold" style={{ color: T.text }}>{data.avg_score != null ? `${data.avg_score.toFixed(2)} / 5.00` : '—'}</span>
       </div>
 
       {/* Distribuição geral */}
-      <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-        <h3 className="text-sm font-semibold mb-4" style={{ color: '#A3A3A3' }}>Distribuição Geral IETR (Trabalho Remoto)</h3>
+      <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <h3 className="text-sm font-semibold mb-4" style={{ color: T.textMuted }}>Distribuição Geral IETR (Trabalho Remoto)</h3>
         {data.class_distribution.length === 0 ? (
-          <p className="text-sm" style={{ color: '#525252' }}>Sem dados</p>
+          <p className="text-sm" style={{ color: T.textFaint }}>Sem dados</p>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
@@ -57,30 +70,30 @@ export default function RemoteTab({ query }: { query: string }) {
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', color: '#fff' }}
+                contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', color: T.text }}
                 formatter={(v, name) => [`${v} respostas`, String(name)]}  
               />
-              <Legend formatter={(v) => <span style={{ color: '#A3A3A3', fontSize: '12px' }}>{v}</span>} />
+              <Legend formatter={(v) => <span style={{ color: T.textMuted, fontSize: '12px' }}>{v}</span>} />
             </PieChart>
           </ResponsiveContainer>
         )}
       </div>
 
       {/* Score por domínio */}
-      <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-        <h3 className="text-sm font-semibold mb-4" style={{ color: '#A3A3A3' }}>Score Médio por Domínio IETR (escala 1–5)</h3>
+      <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <h3 className="text-sm font-semibold mb-4" style={{ color: T.textMuted }}>Score Médio por Domínio IETR (escala 1–5)</h3>
         {data.domains.length === 0 ? (
-          <p className="text-sm" style={{ color: '#525252' }}>Sem dados</p>
+          <p className="text-sm" style={{ color: T.textFaint }}>Sem dados</p>
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(200, data.domains.length * 44)}>
             <BarChart data={data.domains} layout="vertical" margin={{ left: 8, right: 50 }}>
-              <XAxis type="number" domain={[1, 5]} ticks={[1, 2, 3, 3.5, 4, 5]} tick={{ fill: '#525252', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={200} tick={{ fill: '#A3A3A3', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <XAxis type="number" domain={[1, 5]} ticks={[1, 2, 3, 3.5, 4, 5]} tick={{ fill: T.axisX, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={200} tick={{ fill: T.axisY, fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', color: '#fff' }}
-                cursor={{ fill: '#2A2A2A' }}
-                itemStyle={{ color: '#FFFFFF' }}
-                labelStyle={{ color: '#A3A3A3' }}
+                contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', color: T.text }}
+                cursor={{ fill: T.cursor }}
+                itemStyle={{ color: T.text }}
+                labelStyle={{ color: T.textMuted }}
                 formatter={(v, _name, entry) => [
                   `${Number(v).toFixed(2)} — ${(entry as { payload: DomainItem }).payload.classification}`, 'Score'
                 ]}
@@ -98,9 +111,9 @@ export default function RemoteTab({ query }: { query: string }) {
       {/* Cards por domínio */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {data.domains.map((d, i) => (
-          <div key={d.name} className="rounded-xl p-4 flex flex-col gap-2" style={{ backgroundColor: '#1A1A1A', border: `1px solid ${CLASS_COLORS[d.classification] ?? '#2A2A2A'}` }}>
-            <span className="text-xs font-medium" style={{ color: CLASS_COLORS[d.classification] ?? '#A3A3A3' }}>{d.name}</span>
-            <span className="text-2xl font-bold">{d.avg_score.toFixed(2)}</span>
+          <div key={d.name} className="rounded-xl p-4 flex flex-col gap-2" style={{ backgroundColor: T.surface, border: `1px solid ${CLASS_COLORS[d.classification] ?? T.border}` }}>
+            <span className="text-xs font-medium" style={{ color: CLASS_COLORS[d.classification] ?? T.textMuted }}>{d.name}</span>
+            <span className="text-2xl font-bold" style={{ color: T.text }}>{d.avg_score.toFixed(2)}</span>
             <span
               className="text-xs font-semibold px-2 py-0.5 rounded-full w-fit"
               style={{

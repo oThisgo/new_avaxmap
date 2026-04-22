@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
 } from 'recharts'
+import { useTheme } from '@/components/ThemeProvider'
 
 const PALETTE = ['#F5C200', '#22C55E', '#3B82F6', '#8B5CF6', '#EF4444', '#F97316', '#06B6D4', '#EC4899']
 
@@ -19,27 +20,36 @@ interface DemoData {
 }
 
 function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
   if (!active || !payload?.length) return null
   return (
-    <div style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', padding: '8px 12px' }}>
-      <p style={{ color: '#A3A3A3', fontSize: '12px', marginBottom: '2px' }}>{label}</p>
-      <p style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 600 }}>Qtd: {payload[0].value}</p>
+    <div style={{ backgroundColor: isDark ? '#1A1A1A' : '#FFFFFF', border: `1px solid ${isDark ? '#2A2A2A' : '#E5E5E5'}`, borderRadius: '8px', padding: '8px 12px' }}>
+      <p style={{ color: isDark ? '#A3A3A3' : '#737373', fontSize: '12px', marginBottom: '2px' }}>{label}</p>
+      <p style={{ color: isDark ? '#FFFFFF' : '#111111', fontSize: '13px', fontWeight: 600 }}>Qtd: {payload[0].value}</p>
     </div>
   )
 }
 
 function HBarChart({ title, data }: { title: string; data: DistItem[] }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
+  const border = isDark ? '#2A2A2A' : '#E5E5E5'
+  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  const textFaint = isDark ? '#525252' : '#A3A3A3'
+  const cursor = isDark ? '#2A2A2A' : '#F0F0F0'
   return (
-    <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-      <h3 className="text-sm font-semibold mb-4" style={{ color: '#A3A3A3' }}>{title}</h3>
+    <div className="rounded-xl p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+      <h3 className="text-sm font-semibold mb-4" style={{ color: textMuted }}>{title}</h3>
       {data.length === 0 ? (
-        <p className="text-sm" style={{ color: '#525252' }}>Sem dados</p>
+        <p className="text-sm" style={{ color: textFaint }}>Sem dados</p>
       ) : (
         <ResponsiveContainer width="100%" height={Math.max(160, data.length * 36)}>
           <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
-            <XAxis type="number" allowDecimals={false} tick={{ fill: '#525252', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey="name" width={160} tick={{ fill: '#A3A3A3', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip content={<BarTooltip />} cursor={{ fill: '#2A2A2A' }} />
+            <XAxis type="number" allowDecimals={false} tick={{ fill: textFaint, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="name" width={160} tick={{ fill: textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip content={<BarTooltip />} cursor={{ fill: cursor }} />
             <Bar dataKey="value" radius={[0, 4, 4, 0]}>
               {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Bar>
@@ -51,11 +61,18 @@ function HBarChart({ title, data }: { title: string; data: DistItem[] }) {
 }
 
 function DonutChart({ title, data }: { title: string; data: DistItem[] }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
+  const border = isDark ? '#2A2A2A' : '#E5E5E5'
+  const text = isDark ? '#FFFFFF' : '#111111'
+  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  const textFaint = isDark ? '#525252' : '#A3A3A3'
   return (
-    <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-      <h3 className="text-sm font-semibold mb-4" style={{ color: '#A3A3A3' }}>{title}</h3>
+    <div className="rounded-xl p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+      <h3 className="text-sm font-semibold mb-4" style={{ color: textMuted }}>{title}</h3>
       {data.length === 0 ? (
-        <p className="text-sm" style={{ color: '#525252' }}>Sem dados</p>
+        <p className="text-sm" style={{ color: textFaint }}>Sem dados</p>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <PieChart>
@@ -63,10 +80,10 @@ function DonutChart({ title, data }: { title: string; data: DistItem[] }) {
               {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Pie>
             <Tooltip
-              contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', color: '#fff' }}
+              contentStyle={{ backgroundColor: surface, border: `1px solid ${border}`, borderRadius: '8px', color: text }}
               formatter={(v) => [`${v}`, 'Qtd']}  
             />
-            <Legend formatter={(v) => <span style={{ color: '#A3A3A3', fontSize: '11px' }}>{v}</span>} />
+            <Legend formatter={(v) => <span style={{ color: textMuted, fontSize: '11px' }}>{v}</span>} />
           </PieChart>
         </ResponsiveContainer>
       )}
@@ -86,7 +103,7 @@ export default function DemographicsTab({ query }: { query: string }) {
       .catch(() => setLoading(false))
   }, [query])
 
-  if (loading) return <p className="text-sm" style={{ color: '#A3A3A3' }}>Carregando...</p>
+  if (loading) return <p className="text-sm" style={{ color: '#737373' }}>Carregando...</p>
   if (!data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
 
   return (

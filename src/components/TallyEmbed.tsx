@@ -16,7 +16,7 @@ interface TallyEmbedProps {
   title?: string
 }
 
-export function TallyEmbed({ src, title = 'Pesquisa de Saúde e Bem-Estar no Trabalho' }: TallyEmbedProps) {
+export function TallyEmbed({ src, title = 'Sua experiência no trabalho importa' }: TallyEmbedProps) {
   useEffect(() => {
     // Se o embed.js já estava carregado de uma navegação anterior, força o re-scan do DOM
     if (window.Tally) {

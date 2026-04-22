@@ -3,9 +3,21 @@
 import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { useTheme } from '@/components/ThemeProvider'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 export default function ManagerLoginPage() {
   const router = useRouter()
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const T = {
+    bg: isDark ? '#111111' : '#F8F8F8',
+    surface: isDark ? '#1A1A1A' : '#FFFFFF',
+    border: isDark ? '#2A2A2A' : '#E5E5E5',
+    text: isDark ? '#FFFFFF' : '#111111',
+    textMuted: isDark ? '#A3A3A3' : '#737373',
+    inputBg: isDark ? '#111111' : '#F5F5F5',
+  }
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -41,9 +53,14 @@ export default function ManagerLoginPage() {
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: '#111111' }}
+      style={{ backgroundColor: T.bg }}
     >
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md -mt-16">
+        {/* Toggle no canto superior direito */}
+        <div className="flex justify-end mb-4">
+          <ThemeToggle />
+        </div>
+
         {/* Logo */}
         <div className="flex justify-center mb-10">
           <div
@@ -64,15 +81,15 @@ export default function ManagerLoginPage() {
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl p-8" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-          <h1 className="text-2xl font-semibold text-white mb-1">Acesso do Gestor</h1>
-          <p className="text-sm mb-8" style={{ color: '#A3A3A3' }}>
+        <div className="rounded-2xl p-8" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+          <h1 className="text-2xl font-semibold mb-1" style={{ color: T.text }}>Acesso do Gestor</h1>
+          <p className="text-sm mb-8" style={{ color: T.textMuted }}>
             Entre com suas credenciais para acessar o dashboard.
           </p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium" style={{ color: '#A3A3A3' }}>
+              <label className="text-sm font-medium" style={{ color: T.textMuted }}>
                 E-mail
               </label>
               <input
@@ -83,15 +100,15 @@ export default function ManagerLoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="gestor@institutoalana.org.br"
                 className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
-                style={{ backgroundColor: '#111111', border: '1px solid #2A2A2A', color: '#FFFFFF' }}
+                style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = '#F5C200')}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '#2A2A2A')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
                 disabled={loading}
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium" style={{ color: '#A3A3A3' }}>
+              <label className="text-sm font-medium" style={{ color: T.textMuted }}>
                 Senha
               </label>
               <input
@@ -102,9 +119,9 @@ export default function ManagerLoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
-                style={{ backgroundColor: '#111111', border: '1px solid #2A2A2A', color: '#FFFFFF' }}
+                style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = '#F5C200')}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '#2A2A2A')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
                 disabled={loading}
               />
             </div>
@@ -128,7 +145,7 @@ export default function ManagerLoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-xs mt-6" style={{ color: '#525252' }}>
+        <p className="text-center text-xs mt-6" style={{ color: isDark ? '#525252' : '#A3A3A3' }}>
           Instituto Alana — Plataforma de Mapeamento de Riscos Psicossociais
         </p>
       </div>

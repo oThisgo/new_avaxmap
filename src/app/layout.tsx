@@ -8,7 +8,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Pesquisa de Saúde e Bem-Estar | Instituto Alana",
+  title: "Sua experiência no trabalho importa | Instituto Alana",
   description:
     "Plataforma de mapeamento de riscos psicossociais do Instituto Alana.",
 };

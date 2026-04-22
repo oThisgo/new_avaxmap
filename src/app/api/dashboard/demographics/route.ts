@@ -10,8 +10,8 @@ function buildFilters(params: URLSearchParams) {
   return filters
 }
 
-function getAgeRange(birthDate: string | null): string {
-  if (!birthDate) return 'Não informado'
+function getAgeRange(birthDate: string | null): string | null {
+  if (!birthDate) return null
   const birth = new Date(birthDate)
   const age = new Date().getFullYear() - birth.getFullYear()
   if (age < 25) return 'Até 24'
@@ -21,11 +21,11 @@ function getAgeRange(birthDate: string | null): string {
   return '55+'
 }
 
-function countBy(arr: string[]): { name: string; value: number }[] {
+function countBy(arr: (string | null)[]): { name: string; value: number }[] {
   const map: Record<string, number> = {}
   for (const v of arr) {
-    const key = v || 'Não informado'
-    map[key] = (map[key] ?? 0) + 1
+    if (!v) continue
+    map[v] = (map[v] ?? 0) + 1
   }
   return Object.entries(map).map(([name, value]) => ({ name, value }))
 }

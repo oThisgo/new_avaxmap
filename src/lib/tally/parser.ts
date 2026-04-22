@@ -3,7 +3,7 @@ import type { TallyField, TallyWebhookPayload } from './types'
 // Nomes técnicos por módulo
 const HSE_CODES = Array.from({ length: 35 }, (_, i) => `Q${String(i + 1).padStart(2, '0')}`)
 const REMOTE_CODES = Array.from({ length: 16 }, (_, i) => `TR${String(i + 1).padStart(2, '0')}`)
-const SOCIO_CODES = ['birth_date', 'gender', 'race_color', 'marital_status', 'education_level', 'disability']
+const SOCIO_CODES = ['birth_date', 'gender', 'race_color', 'marital_status', 'education_level', 'disability', 'job_observations']
 
 /**
  * Busca um campo pelo nome técnico (key ou label), de forma insensível a maiúsculas.
@@ -55,6 +55,7 @@ export interface ParsedTallyPayload {
   socio: Record<string, string | null>
   hse: Record<string, string | null>
   remote: Record<string, string | null>
+  jobObservations: string | null
   submittedAt: string
   rawFields: TallyField[]
 }
@@ -84,6 +85,7 @@ export function parseTallyPayload(payload: TallyWebhookPayload): ParsedTallyPayl
     socio,
     hse,
     remote,
+    jobObservations: extractString(findField(fields, 'job_observations')),
     submittedAt: payload.data?.createdAt ?? payload.createdAt,
     rawFields: fields,
   }

@@ -66,17 +66,17 @@ export default function LoginPage() {
       </div>
 
       {/* Card */}
-      <div className="bg-[#1A1A1A] rounded-2xl p-8 border border-[#2A2A2A]">
-        <h1 className="text-2xl font-semibold text-white mb-1">
-          Pesquisa de Saúde e Bem-Estar no Trabalho
+      <div className="rounded-2xl p-8 border border-[#E5E5E5]" style={{ backgroundColor: '#FFFFFF' }}>
+        <h1 className="text-2xl font-semibold mb-1" style={{ color: '#111111' }}>
+          Sua experiência no trabalho importa
         </h1>
-        <p className="text-[#A3A3A3] text-sm mb-8">
+        <p className="text-sm mb-8" style={{ color: '#737373' }}>
           Insira o seu CPF para acessar a pesquisa.
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="cpf" className="text-sm font-medium text-[#A3A3A3]">
+            <label htmlFor="cpf" className="text-sm font-medium" style={{ color: '#404040' }}>
               CPF
             </label>
             <input
@@ -89,13 +89,16 @@ export default function LoginPage() {
               value={cpf}
               onChange={(e) => setCpf(formatCpf(e.target.value))}
               placeholder="000.000.000-00"
-              className="w-full rounded-lg bg-[#111111] border border-[#2A2A2A] px-4 py-3 text-white placeholder-[#525252] text-sm focus:outline-none focus:border-[#F5C200] transition-colors"
+              className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
+              style={{ backgroundColor: '#F5F5F5', border: '1px solid #E5E5E5', color: '#111111' }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = '#F5C200')}
+              onBlur={(e) => (e.currentTarget.style.borderColor = '#E5E5E5')}
               disabled={loading}
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/40 rounded-lg px-4 py-2.5">
+            <p className="text-sm rounded-lg px-4 py-2.5" style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626' }}>
               {error}
             </p>
           )}
@@ -103,14 +106,17 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading || digits.length !== 11}
-            className="w-full rounded-lg bg-[#F5C200] text-[#111111] font-semibold py-3 text-sm mt-2 hover:bg-[#D4A800] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full rounded-lg py-3 text-sm font-semibold mt-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ backgroundColor: '#F5C200', color: '#111111' }}
+            onMouseEnter={(e) => { if (!loading && digits.length === 11) e.currentTarget.style.backgroundColor = '#D4A800' }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#F5C200' }}
           >
             {loading ? 'Verificando...' : 'Acessar pesquisa →'}
           </button>
         </form>
       </div>
 
-      <p className="text-center text-[#525252] text-xs mt-6">
+      <p className="text-center text-xs mt-6" style={{ color: '#A3A3A3' }}>
         As respostas são anônimas e analisadas apenas de forma agregada.
       </p>
     </div>

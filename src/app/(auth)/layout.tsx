@@ -6,7 +6,7 @@ export default function AuthLayout({
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: '#111111' }}
+      style={{ backgroundColor: '#FFFFFF', colorScheme: 'light' }}
     >
       {children}
     </div>

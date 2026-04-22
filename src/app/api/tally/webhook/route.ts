@@ -125,6 +125,7 @@ export async function POST(request: NextRequest) {
       hse_class: hseResult.classification,
       remote_score: remoteResult.finalScore,
       remote_class: remoteResult.classification,
+      job_observations: parsed.jobObservations ?? null,
     })
     .select('id')
     .single()

@@ -5,6 +5,7 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
+import { useTheme } from '@/components/ThemeProvider'
 
 // Paleta para gráficos organizacionais
 const ORG_PALETTE = [
@@ -28,24 +29,38 @@ interface OverviewData {
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
+  const border = isDark ? '#2A2A2A' : '#E5E5E5'
+  const text = isDark ? '#FFFFFF' : '#111111'
+  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  const textFaint = isDark ? '#525252' : '#A3A3A3'
   return (
-    <div className="rounded-xl p-5 flex flex-col gap-1" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-      <span className="text-xs uppercase tracking-wide" style={{ color: '#A3A3A3' }}>{label}</span>
-      <span className="text-3xl font-bold">{value}</span>
-      {sub && <span className="text-xs" style={{ color: '#525252' }}>{sub}</span>}
+    <div className="rounded-xl p-5 flex flex-col gap-1" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+      <span className="text-xs uppercase tracking-wide" style={{ color: textMuted }}>{label}</span>
+      <span className="text-3xl font-bold" style={{ color: text }}>{value}</span>
+      {sub && <span className="text-xs" style={{ color: textFaint }}>{sub}</span>}
     </div>
   )
 }
 
 function OrgDonut({ title, data }: { title: string; data: DistItem[] }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
+  const border = isDark ? '#2A2A2A' : '#E5E5E5'
+  const text = isDark ? '#FFFFFF' : '#111111'
+  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  const textFaint = isDark ? '#525252' : '#A3A3A3'
   const total = data.reduce((s, d) => s + d.value, 0)
   const top = data.slice(0, 8)
 
   return (
-    <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-      <h3 className="text-sm font-semibold mb-4" style={{ color: '#A3A3A3' }}>{title}</h3>
+    <div className="rounded-xl p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+      <h3 className="text-sm font-semibold mb-4" style={{ color: textMuted }}>{title}</h3>
       {data.length === 0 ? (
-        <p className="text-sm" style={{ color: '#525252' }}>Sem dados</p>
+        <p className="text-sm" style={{ color: textFaint }}>Sem dados</p>
       ) : (
         <>
           <ResponsiveContainer width="100%" height={200}>
@@ -56,7 +71,7 @@ function OrgDonut({ title, data }: { title: string; data: DistItem[] }) {
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', color: '#fff' }}
+                contentStyle={{ backgroundColor: surface, border: `1px solid ${border}`, borderRadius: '8px', color: text }}
                 formatter={(value, name) => [
                   `${value} (${total > 0 ? ((Number(value) / total) * 100).toFixed(1) : 0}%)`,
                   String(name),
@@ -70,13 +85,13 @@ function OrgDonut({ title, data }: { title: string; data: DistItem[] }) {
               <div key={d.name} className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: ORG_PALETTE[i % ORG_PALETTE.length] }} />
-                  <span className="text-xs truncate" style={{ color: '#A3A3A3' }} title={d.name}>{d.name}</span>
+                  <span className="text-xs truncate" style={{ color: textMuted }} title={d.name}>{d.name}</span>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="text-xs" style={{ color: '#525252' }}>
+                  <span className="text-xs" style={{ color: textFaint }}>
                     {total > 0 ? ((d.value / total) * 100).toFixed(1) : 0}%
                   </span>
-                  <span className="text-xs font-semibold" style={{ color: '#FFFFFF' }}>{d.value}</span>
+                  <span className="text-xs font-semibold" style={{ color: text }}>{d.value}</span>
                 </div>
               </div>
             ))}
@@ -94,6 +109,16 @@ function fmtDay(date: string) {
 }
 
 export default function OverviewTab({ query }: { query: string }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const T = {
+    surface: isDark ? '#1A1A1A' : '#FFFFFF',
+    border: isDark ? '#2A2A2A' : '#E5E5E5',
+    text: isDark ? '#FFFFFF' : '#111111',
+    textMuted: isDark ? '#A3A3A3' : '#737373',
+    textFaint: isDark ? '#525252' : '#A3A3A3',
+    grid: isDark ? '#2A2A2A' : '#E5E5E5',
+  }
   const [data, setData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -105,7 +130,7 @@ export default function OverviewTab({ query }: { query: string }) {
       .catch(() => setLoading(false))
   }, [query])
 
-  if (loading) return <p className="text-sm" style={{ color: '#A3A3A3' }}>Carregando...</p>
+  if (loading) return <p className="text-sm" style={{ color: T.textMuted }}>Carregando...</p>
   if (!data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
 
   return (
@@ -122,32 +147,32 @@ export default function OverviewTab({ query }: { query: string }) {
       </div>
 
       {/* Gráfico de respostas por dia */}
-      <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A' }}>
-        <h3 className="text-sm font-semibold mb-4" style={{ color: '#A3A3A3' }}>Respostas por Dia</h3>
+      <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <h3 className="text-sm font-semibold mb-4" style={{ color: T.textMuted }}>Respostas por Dia</h3>
         {data.responses_by_day.length === 0 ? (
-          <p className="text-sm" style={{ color: '#525252' }}>Sem dados</p>
+          <p className="text-sm" style={{ color: T.textFaint }}>Sem dados</p>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={data.responses_by_day} margin={{ left: 0, right: 16, top: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
+              <CartesianGrid strokeDasharray="3 3" stroke={T.grid} />
               <XAxis
                 dataKey="date"
                 tickFormatter={fmtDay}
-                tick={{ fill: '#525252', fontSize: 11 }}
+                tick={{ fill: T.textFaint, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
                 allowDecimals={false}
-                tick={{ fill: '#525252', fontSize: 11 }}
+                tick={{ fill: T.textFaint, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 width={32}
               />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', color: '#fff' }}              itemStyle={{ color: '#FFFFFF' }}
-              labelStyle={{ color: '#A3A3A3' }}                labelFormatter={(v) => `Data: ${String(v).split('-').reverse().join('/')}`}
+                contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', color: T.text }}              itemStyle={{ color: T.text }}
+              labelStyle={{ color: T.textMuted }}                labelFormatter={(v) => `Data: ${String(v).split('-').reverse().join('/')}`}
                 formatter={(v) => [`${v} respostas`, 'Respostas']}
               />
               <Line
@@ -164,7 +189,7 @@ export default function OverviewTab({ query }: { query: string }) {
       </div>
 
       {/* Distribuições organizacionais */}
-      <h3 className="text-sm font-semibold -mb-2" style={{ color: '#A3A3A3' }}>Adesão por Segmento</h3>
+      <h3 className="text-sm font-semibold -mb-2" style={{ color: T.textMuted }}>Adesão por Segmento</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <OrgDonut title="Respostas por Área" data={data.by_area} />
         <OrgDonut title="Respostas por Cargo" data={data.by_role} />

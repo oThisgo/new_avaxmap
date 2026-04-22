@@ -58,6 +58,7 @@ export interface Response {
   hse_class?: HseClass | null
   remote_score?: number | null
   remote_class?: RemoteClass | null
+  job_observations?: string | null
   created_at: string
 }
 
