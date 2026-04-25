@@ -7,6 +7,12 @@ import {
 } from 'recharts'
 import { useTheme } from '@/components/ThemeProvider'
 
+interface TooltipProps {
+  active?: boolean
+  payload?: { value: number; payload: DomainItem }[]
+  label?: string
+}
+
 const CLASS_COLORS: Record<string, string> = {
   'Baixo risco': '#22C55E',
   'Risco moderado': '#F5C200',
@@ -23,8 +29,40 @@ const DOMAIN_COLORS: Record<string, string> = {
   'Comunicação e Mudanças': '#F5C200',
 }
 
+const DOMAIN_DESCRIPTIONS: Record<string, string> = {
+  'Demandas': 'Avalia a carga de trabalho, incluindo ritmo, volume, atenção exigida e carga emocional.',
+  'Controle': 'Investiga o nível de autonomia e influência que o trabalhador tem sobre como realiza suas tarefas e o ritmo de trabalho.',
+  'Apoio da Chefia': 'Avalia o suporte, incentivo e recursos fornecidos pela liderança direta.',
+  'Apoio dos Colegas': 'Avalia o apoio social, colaboração e ajuda recebida dos colegas de trabalho.',
+  'Relacionamentos': 'Investiga a promoção de um ambiente de trabalho positivo, prevenção de conflitos e comportamento inaceitável.',
+  'Cargo': 'Mensura a clareza sobre responsabilidades, metas e se há conflitos de função.',
+  'Comunicação e Mudanças': 'Analisa como as mudanças organizacionais (estruturais, técnicas) são gerenciadas e comunicadas.',
+}
+
 interface DomainItem { name: string; avg_score: number; weight: number; classification: string }
 interface HseData { domains: DomainItem[]; class_distribution: { name: string; value: number }[]; avg_score: number | null }
+
+function DomainTooltip({ active, payload, label }: TooltipProps) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
+  const border = isDark ? '#2A2A2A' : '#E5E5E5'
+  const text = isDark ? '#FFFFFF' : '#111111'
+  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  const color = CLASS_COLORS[d.classification] ?? '#A3A3A3'
+  const description = DOMAIN_DESCRIPTIONS[d.name]
+  return (
+    <div style={{ backgroundColor: surface, border: `1px solid ${border}`, borderRadius: '10px', padding: '12px 14px', maxWidth: '260px' }}>
+      <p className="font-semibold text-sm mb-1" style={{ color: text }}>{label}</p>
+      <p className="text-sm mb-2" style={{ color }}>
+        Score: {d.avg_score.toFixed(2)} — {d.classification}
+      </p>
+      {description && <p className="text-xs leading-relaxed" style={{ color: textMuted }}>{description}</p>}
+    </div>
+  )
+}
 
 export default function HseTab({ query }: { query: string }) {
   const { theme } = useTheme()
@@ -95,13 +133,8 @@ export default function HseTab({ query }: { query: string }) {
               <XAxis type="number" domain={[0, 4]} ticks={[0, 1, 1.5, 2, 2.5, 3, 4]} tick={{ fill: T.axisX, fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="name" width={180} tick={{ fill: T.axisY, fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip
-                contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', color: T.text }}
+                content={<DomainTooltip />}
                 cursor={{ fill: T.cursor }}
-                itemStyle={{ color: T.text }}
-                labelStyle={{ color: T.textMuted }}
-                formatter={(v, _name, entry) => [
-                  `${Number(v).toFixed(2)} — ${(entry as { payload: DomainItem }).payload.classification}`, 'Score'
-                ]}
               />
               <Bar dataKey="avg_score" radius={[0, 4, 4, 0]}>
                 {data.domains.map((d) => (
@@ -128,6 +161,9 @@ export default function HseTab({ query }: { query: string }) {
             >
               {d.classification}
             </span>
+            {DOMAIN_DESCRIPTIONS[d.name] && (
+              <p className="text-xs leading-relaxed mt-1" style={{ color: T.textMuted }}>{DOMAIN_DESCRIPTIONS[d.name]}</p>
+            )}
           </div>
         ))}
       </div>

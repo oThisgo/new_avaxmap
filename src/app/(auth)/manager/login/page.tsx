@@ -64,15 +64,16 @@ export default function ManagerLoginPage() {
         {/* Logo */}
         <div className="flex justify-center mb-10">
           <div
-            className="w-20 h-20 rounded-full flex items-center justify-center overflow-hidden"
+            className="w-32 h-32 rounded-full flex items-center justify-center overflow-hidden"
             style={{ backgroundColor: '#F5C200' }}
           >
             <Image
               src="/logo-alana.png"
               alt="Instituto Alana"
-              width={56}
-              height={56}
+              width={96}
+              height={96}
               className="object-contain"
+              style={{ height: 'auto' }}
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none'
               }}
@@ -148,6 +149,19 @@ export default function ManagerLoginPage() {
         <p className="text-center text-xs mt-6" style={{ color: isDark ? '#525252' : '#A3A3A3' }}>
           Instituto Alana — Plataforma de Mapeamento de Riscos Psicossociais
         </p>
+      </div>
+
+      {/* Logo FIA */}
+      <div style={{ position: 'fixed', bottom: '20px', left: '20px' }}>
+        <Image
+          src="/logo-fia.png"
+          alt="FIA Business School"
+          width={140}
+          height={60}
+          className="object-contain"
+          style={{ height: 'auto', opacity: isDark ? 0.7 : 1 }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
       </div>
     </div>
   )

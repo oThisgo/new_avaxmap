@@ -51,13 +51,14 @@ export default function LoginPage() {
     <div className="w-full max-w-md">
       {/* Logo */}
       <div className="flex justify-center mb-10">
-        <div className="w-20 h-20 rounded-full bg-[#F5C200] flex items-center justify-center overflow-hidden">
+        <div className="w-26 h-26 rounded-full bg-[#F5C200] flex items-center justify-center overflow-hidden">
           <Image
             src="/logo-alana.png"
             alt="Instituto Alana"
-            width={56}
-            height={56}
+            width={96}
+            height={96}
             className="object-contain"
+            style={{ height: 'auto' }}
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none'
             }}
@@ -119,6 +120,19 @@ export default function LoginPage() {
       <p className="text-center text-xs mt-6" style={{ color: '#A3A3A3' }}>
         As respostas são anônimas e analisadas apenas de forma agregada.
       </p>
+
+      {/* Logo FIA */}
+      <div style={{ position: 'fixed', bottom: '20px', left: '20px' }}>
+        <Image
+          src="/logo-fia.png"
+          alt="FIA Business School"
+          width={140}
+          height={60}
+          className="object-contain"
+          style={{ height: 'auto' }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
+      </div>
     </div>
   )
 }

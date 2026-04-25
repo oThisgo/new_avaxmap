@@ -7,6 +7,12 @@ import {
 } from 'recharts'
 import { useTheme } from '@/components/ThemeProvider'
 
+interface TooltipProps {
+  active?: boolean
+  payload?: { value: number; payload: DomainItem }[]
+  label?: string
+}
+
 const CLASS_COLORS: Record<string, string> = {
   'Condição adequada': '#22C55E',
   'Zona de atenção': '#F5C200',
@@ -20,6 +26,26 @@ const DOMAIN_COLORS = [
 
 interface DomainItem { name: string; avg_score: number; weight: number; classification: string }
 interface RemoteData { domains: DomainItem[]; class_distribution: { name: string; value: number }[]; avg_score: number | null }
+
+function DomainTooltip({ active, payload, label }: TooltipProps) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
+  const border = isDark ? '#2A2A2A' : '#E5E5E5'
+  const text = isDark ? '#FFFFFF' : '#111111'
+  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  const color = CLASS_COLORS[d.classification] ?? '#A3A3A3'
+  return (
+    <div style={{ backgroundColor: surface, border: `1px solid ${border}`, borderRadius: '10px', padding: '12px 14px', maxWidth: '260px' }}>
+      <p className="font-semibold text-sm mb-1" style={{ color: text }}>{label}</p>
+      <p className="text-sm" style={{ color }}>
+        Score: {d.avg_score.toFixed(2)} — {d.classification}
+      </p>
+    </div>
+  )
+}
 
 export default function RemoteTab({ query }: { query: string }) {
   const { theme } = useTheme()
@@ -90,13 +116,8 @@ export default function RemoteTab({ query }: { query: string }) {
               <XAxis type="number" domain={[1, 5]} ticks={[1, 2, 3, 3.5, 4, 5]} tick={{ fill: T.axisX, fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="name" width={200} tick={{ fill: T.axisY, fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip
-                contentStyle={{ backgroundColor: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', color: T.text }}
+                content={<DomainTooltip />}
                 cursor={{ fill: T.cursor }}
-                itemStyle={{ color: T.text }}
-                labelStyle={{ color: T.textMuted }}
-                formatter={(v, _name, entry) => [
-                  `${Number(v).toFixed(2)} — ${(entry as { payload: DomainItem }).payload.classification}`, 'Score'
-                ]}
               />
               <Bar dataKey="avg_score" radius={[0, 4, 4, 0]}>
                 {data.domains.map((d) => (
