@@ -50,6 +50,15 @@ function extractString(field: TallyField | undefined): string | null {
   return String(field.value).trim() || null
 }
 
+/**
+ * Remove texto entre parênteses (e espaços extras) de um valor extraído.
+ * Ex.: "Mulher cisgênero (que se identifica...)" → "Mulher cisgênero"
+ */
+function stripParenthetical(value: string | null): string | null {
+  if (!value) return value
+  return value.replace(/\s*\(.*?\)\s*$/, '').trim() || null
+}
+
 export interface ParsedTallyPayload {
   userId: string | null
   socio: Record<string, string | null>
@@ -67,7 +76,8 @@ export function parseTallyPayload(payload: TallyWebhookPayload): ParsedTallyPayl
 
   const socio: Record<string, string | null> = {}
   for (const code of SOCIO_CODES) {
-    socio[code] = extractString(findField(fields, code))
+    const raw = extractString(findField(fields, code))
+    socio[code] = code === 'gender' ? stripParenthetical(raw) : raw
   }
 
   const hse: Record<string, string | null> = {}
