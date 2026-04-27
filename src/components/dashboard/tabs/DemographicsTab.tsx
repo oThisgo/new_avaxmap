@@ -19,16 +19,20 @@ interface DemoData {
   disability: DistItem[]
 }
 
-function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
+function BarTooltip({ active, payload, label, isDark, color }: { active?: boolean; payload?: { value: number }[]; label?: string; isDark: boolean; color: string }) {
   if (!active || !payload?.length) return null
   return (
     <div style={{ backgroundColor: isDark ? '#1A1A1A' : '#FFFFFF', border: `1px solid ${isDark ? '#2A2A2A' : '#E5E5E5'}`, borderRadius: '8px', padding: '8px 12px' }}>
       <p style={{ color: isDark ? '#A3A3A3' : '#737373', fontSize: '12px', marginBottom: '2px' }}>{label}</p>
-      <p style={{ color: isDark ? '#FFFFFF' : '#111111', fontSize: '13px', fontWeight: 600 }}>Qtd: {payload[0].value}</p>
+      <p style={{ color, fontSize: '13px', fontWeight: 600 }}>Qtd: {payload[0].value}</p>
     </div>
   )
+}
+
+function TooltipWithColor({ active, payload, label, data, isDark }: { active?: boolean; payload?: { value: number }[]; label?: string; data: DistItem[]; isDark: boolean }) {
+  const idx = data.findIndex((d) => d.name === label)
+  const color = PALETTE[Math.max(idx, 0) % PALETTE.length]
+  return <BarTooltip active={active} payload={payload} label={label} isDark={isDark} color={color} />
 }
 
 function HBarChart({ title, data }: { title: string; data: DistItem[] }) {
@@ -39,6 +43,7 @@ function HBarChart({ title, data }: { title: string; data: DistItem[] }) {
   const textMuted = isDark ? '#A3A3A3' : '#737373'
   const textFaint = isDark ? '#525252' : '#A3A3A3'
   const cursor = isDark ? '#2A2A2A' : '#F0F0F0'
+
   return (
     <div className="rounded-xl p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
       <h3 className="text-sm font-semibold mb-4" style={{ color: textMuted }}>{title}</h3>
@@ -49,7 +54,7 @@ function HBarChart({ title, data }: { title: string; data: DistItem[] }) {
           <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
             <XAxis type="number" allowDecimals={false} tick={{ fill: textFaint, fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis type="category" dataKey="name" width={160} tick={{ fill: textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip content={<BarTooltip />} cursor={{ fill: cursor }} />
+            <Tooltip content={<TooltipWithColor data={data} isDark={isDark} />} cursor={{ fill: cursor }} />
             <Bar dataKey="value" radius={[0, 4, 4, 0]}>
               {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
             </Bar>

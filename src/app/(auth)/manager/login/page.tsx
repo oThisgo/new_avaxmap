@@ -64,7 +64,7 @@ export default function ManagerLoginPage() {
         {/* Logo */}
         <div className="flex justify-center mb-10">
           <div
-            className="w-32 h-32 rounded-full flex items-center justify-center overflow-hidden"
+            className="w-26 h-26 rounded-full flex items-center justify-center overflow-hidden"
             style={{ backgroundColor: '#F5C200' }}
           >
             <Image

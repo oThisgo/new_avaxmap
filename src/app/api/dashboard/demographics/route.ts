@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 
 function buildFilters(params: URLSearchParams) {
   const filters: Record<string, string> = {}
-  for (const key of ['area', 'role', 'gender', 'race_color']) {
+  for (const key of ['area', 'role', 'gender', 'race_color', 'employment_type']) {
     const v = params.get(key)
     if (v) filters[key] = v
   }

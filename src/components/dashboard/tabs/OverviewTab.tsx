@@ -25,7 +25,6 @@ interface OverviewData {
   by_area: DistItem[]
   by_role: DistItem[]
   by_employment_type: DistItem[]
-  by_organization: DistItem[]
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
@@ -190,11 +189,10 @@ export default function OverviewTab({ query }: { query: string }) {
 
       {/* Distribuições organizacionais */}
       <h3 className="text-sm font-semibold -mb-2" style={{ color: T.textMuted }}>Adesão por Segmento</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <OrgDonut title="Respostas por Área" data={data.by_area} />
         <OrgDonut title="Respostas por Cargo" data={data.by_role} />
         <OrgDonut title="Respostas por Vínculo" data={data.by_employment_type} />
-        <OrgDonut title="Respostas por Organização" data={data.by_organization} />
       </div>
     </div>
   )

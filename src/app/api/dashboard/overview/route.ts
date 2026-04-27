@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 
 function buildFilters(params: URLSearchParams) {
   const filters: Record<string, string> = {}
-  for (const key of ['area', 'role', 'gender', 'race_color']) {
+  for (const key of ['area', 'role', 'gender', 'race_color', 'employment_type']) {
     const v = params.get(key)
     if (v) filters[key] = v
   }
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   // Todos os colaboradores com filtros (para total esperado e distribuições)
   let collabQuery = supabase
     .from('collaborators')
-    .select('id, area, role, employment_type, organization')
+    .select('id, area, role, employment_type')
   for (const [k, v] of Object.entries(filters)) {
     collabQuery = collabQuery.eq(k, v)
   }
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   // Distribuições por campo organizacional — apenas quem respondeu (has_answered = true)
   let answeredQuery = supabase
     .from('collaborators')
-    .select('id, area, role, employment_type, organization')
+    .select('id, area, role, employment_type')
     .eq('has_answered', true)
   for (const [k, v] of Object.entries(filters)) {
     answeredQuery = answeredQuery.eq(k, v)
@@ -56,7 +56,6 @@ export async function GET(request: NextRequest) {
   const by_area = countBy(answered.map((c) => c.area))
   const by_role = countBy(answered.map((c) => c.role))
   const by_employment_type = countBy(answered.map((c) => c.employment_type))
-  const by_organization = countBy(answered.map((c) => c.organization))
 
   if (collaboratorIds.length === 0) {
     return NextResponse.json({
@@ -67,7 +66,6 @@ export async function GET(request: NextRequest) {
       by_area,
       by_role,
       by_employment_type,
-      by_organization,
     })
   }
 
@@ -101,6 +99,5 @@ export async function GET(request: NextRequest) {
     by_area,
     by_role,
     by_employment_type,
-    by_organization,
   })
 }
