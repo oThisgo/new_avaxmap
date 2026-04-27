@@ -125,10 +125,14 @@ export async function GET(request: NextRequest) {
     ])
     XLSX.utils.book_append_sheet(wb, wsDay, 'Linha do Tempo')
 
-    const buf: Uint8Array = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array
+    const raw = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array
+    // Cria um ArrayBuffer puro (não SharedArrayBuffer) compatível com BodyInit
+    const ab = new ArrayBuffer(raw.byteLength)
+    new Uint8Array(ab).set(raw)
+    const blob = new Blob([ab], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const fileName = `relatorio-adesao-${new Date().toISOString().slice(0, 10)}.xlsx`
 
-    return new NextResponse(buf, {
+    return new NextResponse(blob, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${fileName}"`,
