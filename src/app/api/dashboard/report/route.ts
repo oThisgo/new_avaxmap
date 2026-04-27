@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
     ])
     XLSX.utils.book_append_sheet(wb, wsDay, 'Linha do Tempo')
 
-    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const buf: Uint8Array = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array
     const fileName = `relatorio-adesao-${new Date().toISOString().slice(0, 10)}.xlsx`
 
     return new NextResponse(buf, {
