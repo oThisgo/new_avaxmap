@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
+import { hashCpf } from '@/lib/security/crypto'
 
 const AUTH_WINDOW_MS = 60_000
 const AUTH_LIMIT = 10
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
   const result = await supabase
     .from('collaborators')
     .select('id, has_answered')
-    .eq('cpf', cpf)
+    .eq('cpf', hashCpf(cpf))
     .single()
 
   const error = result.error

@@ -5,6 +5,7 @@ import { parseTallyPayload } from '@/lib/tally/parser'
 import type { TallyWebhookPayload } from '@/lib/tally/types'
 import { calculateHSE } from '@/lib/analytics/hse'
 import { calculateRemote } from '@/lib/analytics/remote'
+import { encryptFieldOrNull } from '@/lib/security/crypto'
 
 const SIGNING_SECRET = process.env.TALLY_SIGNING_SECRET
 
@@ -138,17 +139,20 @@ export async function POST(request: NextRequest) {
   }
 
   // 11. Atualizar has_answered e dados sociodemográficos do colaborador
+  // Campos de identificação direta (birth_date, education_level, marital_status, disability)
+  // são cifrados com AES-256-GCM. Gender e race_color ficam em claro pois são usados
+  // como filtros no dashboard.
   const socio = parsed.socio
   const collaboratorUpdate = await supabase
     .from('collaborators')
     .update({
       has_answered: true,
-      birth_date: socio.birth_date ?? null,
+      birth_date: encryptFieldOrNull(socio.birth_date),
       gender: socio.gender ?? null,
       race_color: socio.race_color ?? null,
-      marital_status: socio.marital_status ?? null,
-      education_level: socio.education_level ?? null,
-      disability: socio.disability ?? null,
+      marital_status: encryptFieldOrNull(socio.marital_status),
+      education_level: encryptFieldOrNull(socio.education_level),
+      disability: encryptFieldOrNull(socio.disability),
     })
     .eq('id', parsed.userId)
 

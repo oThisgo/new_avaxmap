@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession, isAdmin } from '@/lib/auth/manager'
+import { hashCpf, encryptFieldOrNull } from '@/lib/security/crypto'
 
 // ─── CSV parser mínimo com suporte a campos com vírgula entre aspas ──────────
 function parseCsvRow(row: string): string[] {
@@ -96,9 +97,9 @@ export async function POST(request: NextRequest) {
     }
 
     rows.push({
-      cpf,
-      name: cols[0] ?? '',
-      email: cols[3] ?? '',
+      cpf: hashCpf(cpf),
+      name: encryptFieldOrNull(cols[0]) ?? '',
+      email: encryptFieldOrNull(cols[3] ?? null),
       area: cols[4] || null,
       role: cols[5] || null,
       employment_type: cols[9] || null,
@@ -112,12 +113,12 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServerClient()
 
-  // Identifica CPFs já existentes para diferenciar insert de update
-  const incomingCpfs = rows.map((r) => r.cpf)
+  // CPFs já estão hasheados em rows; busca para diferenciar insert de update
+  const incomingHashedCpfs = rows.map((r) => r.cpf)
   const { data: existing } = await supabase
     .from('collaborators')
     .select('cpf')
-    .in('cpf', incomingCpfs)
+    .in('cpf', incomingHashedCpfs)
 
   const existingCpfSet = new Set((existing ?? []).map((e) => e.cpf))
 
@@ -131,8 +132,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Erro no banco: ${upsertError.message}` }, { status: 500 })
   }
 
-  const inserted = rows.filter((r) => !existingCpfSet.has(r.cpf)).length
-  const updated = rows.filter((r) => existingCpfSet.has(r.cpf)).length
+  const inserted = rows.filter((r) => !existingCpfSet.has(r.cpf as string)).length
+  const updated = rows.filter((r) => existingCpfSet.has(r.cpf as string)).length
 
   return NextResponse.json({
     ok: true,
