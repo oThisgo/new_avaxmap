@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   type CollaboratorRow = {
     cpf: string
     name: string
-    email: string
+    email: string | null
     area: string | null
     role: string | null
     employment_type: string | null
