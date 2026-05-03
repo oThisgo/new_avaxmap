@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
+
+const AUTH_WINDOW_MS = 60_000
+const AUTH_LIMIT = 10
 
 function normalizeCpf(raw: string): string {
   return raw.replace(/[.\-]/g, '').trim()
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request.headers)
+  const rateLimit = checkRateLimit(`auth:collaborator:${ip}`, AUTH_LIMIT, AUTH_WINDOW_MS)
+  if (!rateLimit.allowed) {
+    const retryAfterSec = Math.max(1, Math.ceil((rateLimit.resetAt - Date.now()) / 1000))
+    return NextResponse.json(
+      { error: 'Muitas tentativas. Tente novamente em instantes.' },
+      { status: 429, headers: { 'Retry-After': String(retryAfterSec) } },
+    )
+  }
+
   let body: unknown
   try {
     body = await request.json()
