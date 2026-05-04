@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
+import crypto from 'node:crypto'
 import { createServerClient } from '@/lib/supabase/server'
 import { parseTallyPayload } from '@/lib/tally/parser'
 import type { TallyWebhookPayload } from '@/lib/tally/types'
@@ -20,6 +20,30 @@ function verifySignature(rawBody: string, signature: string | null, secret: stri
     return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
   } catch {
     return false
+  }
+}
+
+type SupabaseClient = ReturnType<typeof createServerClient>
+
+// Salva os campos opcionais (which_disability, remote_status) via RPC para contornar
+// o schema cache do PostgREST no Supabase Cloud, que não reconhece colunas adicionadas
+// depois que o servidor subiu, mesmo após NOTIFY pgrst 'reload schema'.
+// A função SQL `save_optional_collaborator_fields` executa UPDATE direto no Postgres.
+async function saveOptionalFields(
+  supabase: SupabaseClient,
+  collaboratorId: string,
+  whichDisability: string | null,
+  remoteStatus: string | null,
+): Promise<void> {
+  const { error } = await supabase.rpc('save_optional_collaborator_fields', {
+    p_id: collaboratorId,
+    p_which_disability: whichDisability,
+    p_remote_status: remoteStatus,
+  })
+  if (error) {
+    console.error('[webhook] erro ao salvar campos opcionais via RPC', error.message)
+  } else {
+    console.log('[webhook] campos opcionais salvos OK', { which_disability: whichDisability, remote_status: remoteStatus })
   }
 }
 
@@ -138,27 +162,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Erro interno ao salvar resposta.' }, { status: 500 })
   }
 
-  // 11. Atualizar has_answered e dados sociodemográficos do colaborador
-  // Campos de identificação direta (birth_date, education_level, marital_status, disability)
-  // são cifrados com AES-256-GCM. Gender e race_color ficam em claro pois são usados
-  // como filtros no dashboard.
+  // 11. Atualizar has_answered e dados sociodemográficos do colaborador.
+  // birth_date, gender e race_color vêm do CSV e NÃO são lidos do formulário.
+  // which_disability e remote_status são salvos via RPC (bypassa o schema cache do PostgREST).
   const socio = parsed.socio
-  const collaboratorUpdate = await supabase
+  const disabilityRaw = (socio.disability ?? '').toLowerCase().trim()
+  const hasDisability = disabilityRaw.startsWith('sim') || ['yes', 'true', '1'].includes(disabilityRaw)
+  const whichDisability = hasDisability ? (socio.which_disability ?? null) : null
+  const remoteStatusRaw = socio.remote_status ?? null
+
+  console.log('[webhook] socio parsed', {
+    disability: socio.disability, hasDisability,
+    which_disability: socio.which_disability, whichDisability,
+    remote_status: socio.remote_status,
+  })
+
+  const { error: coreUpdateError } = await supabase
     .from('collaborators')
     .update({
       has_answered: true,
-      birth_date: encryptFieldOrNull(socio.birth_date),
-      gender: socio.gender ?? null,
-      race_color: socio.race_color ?? null,
       marital_status: encryptFieldOrNull(socio.marital_status),
       education_level: encryptFieldOrNull(socio.education_level),
       disability: encryptFieldOrNull(socio.disability),
     })
     .eq('id', parsed.userId)
 
-  if (collaboratorUpdate.error) {
-    console.error('[webhook] erro ao atualizar colaborador', collaboratorUpdate.error)
+  if (coreUpdateError) {
+    console.error('[webhook] erro ao atualizar campos base', coreUpdateError.message)
   }
+
+  await saveOptionalFields(supabase, parsed.userId, whichDisability, remoteStatusRaw)
 
   console.log('[webhook] processado com sucesso', {
     userId: parsed.userId,

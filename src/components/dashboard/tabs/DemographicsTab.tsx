@@ -17,6 +17,7 @@ interface DemoData {
   education_level: DistItem[]
   marital_status: DistItem[]
   disability: DistItem[]
+  disability_types: DistItem[]
 }
 
 function BarTooltip({ active, payload, label, isDark, color }: { active?: boolean; payload?: { value: number }[]; label?: string; isDark: boolean; color: string }) {
@@ -119,6 +120,11 @@ export default function DemographicsTab({ query }: { query: string }) {
       <HBarChart title="Escolaridade" data={data.education_level} />
       <HBarChart title="Estado Civil" data={data.marital_status} />
       <DonutChart title="Deficiência (PcD)" data={data.disability} />
+      {data.disability_types.length > 0 && (
+        <div className="md:col-span-2">
+          <HBarChart title="Tipos de Deficiência" data={data.disability_types} />
+        </div>
+      )}
     </div>
   )
 }

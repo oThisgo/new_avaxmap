@@ -27,6 +27,8 @@ export interface Collaborator {
   marital_status?: string | null
   education_level?: string | null
   disability?: string | null
+  which_disability?: string | null
+  remote_status?: string | null
 }
 
 export interface AnswerRecord {

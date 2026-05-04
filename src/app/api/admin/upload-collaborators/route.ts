@@ -31,12 +31,12 @@ function normalizeCpf(raw: string): string {
 // Colunas do CSV (0-indexed):
 // 0: Nome completo → name
 // 1: CPF → cpf
-// 2: Data de nascimento → IGNORADO (formulário pergunta)
+// 2: Data de nascimento → birth_date
 // 3: E-mail → email
 // 4: Variável de estratificação 1 (área) → area
 // 5: Variável de estratificação 2 (cargo) → role
-// 6: Variável de estratificação 3 (gênero) → IGNORADO (formulário pergunta)
-// 7: Variável de estratificação 4 (raça) → IGNORADO (formulário pergunta)
+// 6: Variável de estratificação 3 (gênero) → gender
+// 7: Variável de estratificação 4 (raça) → race_color
 // 8: Variável de estratificação 5 (idade) → IGNORADO
 // 9: Vínculo → employment_type
 // 10: Organização → organization
@@ -77,8 +77,11 @@ export async function POST(request: NextRequest) {
     cpf: string
     name: string
     email: string | null
+    birth_date: string | null
     area: string | null
     role: string | null
+    gender: string | null
+    race_color: string | null
     employment_type: string | null
     organization: string | null
   }
@@ -100,8 +103,11 @@ export async function POST(request: NextRequest) {
       cpf: hashCpf(cpf),
       name: encryptFieldOrNull(cols[0]) ?? '',
       email: encryptFieldOrNull(cols[3] ?? null),
+      birth_date: encryptFieldOrNull(cols[2] ?? null),
       area: cols[4] || null,
       role: cols[5] || null,
+      gender: cols[6] || null,
+      race_color: cols[7] || null,
       employment_type: cols[9] || null,
       organization: cols[10] || null,
     })
@@ -122,8 +128,8 @@ export async function POST(request: NextRequest) {
 
   const existingCpfSet = new Set((existing ?? []).map((e) => e.cpf))
 
-  // Upsert: só atualiza name, email, area, role, employment_type, organization
-  // NÃO toca em: has_answered, birth_date, gender_*, race_color_*, etc.
+  // Upsert: atualiza name, email, birth_date, area, role, gender, race_color, employment_type, organization
+  // NÃO toca em: has_answered
   const { error: upsertError } = await supabase
     .from('collaborators')
     .upsert(rows, { onConflict: 'cpf', ignoreDuplicates: false })

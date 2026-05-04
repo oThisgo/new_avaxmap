@@ -13,6 +13,27 @@ interface TooltipProps {
   label?: string
 }
 
+interface DistItem { name: string; value: number }
+
+interface QuestionRiskItem {
+  domain: string
+  question_code: string
+  question_text: string
+  avg_score: number
+  classification: string
+  responses: number
+}
+
+function classificationBadge(classification: string) {
+  if (classification === 'Alto risco') {
+    return { bg: '#EF444422', text: '#EF4444' }
+  }
+  if (classification === 'Risco moderado') {
+    return { bg: '#F5C20022', text: '#F5C200' }
+  }
+  return { bg: '#22C55E22', text: '#22C55E' }
+}
+
 const CLASS_COLORS: Record<string, string> = {
   'Baixo risco': '#22C55E',
   'Risco moderado': '#F5C200',
@@ -30,7 +51,12 @@ const DOMAIN_DESCRIPTIONS: Record<string, string> = {
 }
 
 interface DomainItem { name: string; avg_score: number; weight: number; classification: string }
-interface HseData { domains: DomainItem[]; class_distribution: { name: string; value: number }[]; avg_score: number | null }
+interface HseData {
+  domains: DomainItem[]
+  class_distribution: DistItem[]
+  avg_score: number | null
+  question_risk: QuestionRiskItem[]
+}
 
 function DomainTooltip({ active, payload, label }: TooltipProps) {
   const { theme } = useTheme()
@@ -59,6 +85,7 @@ export default function HseTab({ query }: { query: string }) {
   const isDark = theme === 'dark'
   const T = {
     surface: isDark ? '#1A1A1A' : '#FFFFFF',
+    surface2: isDark ? '#222222' : '#F5F5F5',
     border: isDark ? '#2A2A2A' : '#E5E5E5',
     text: isDark ? '#FFFFFF' : '#111111',
     textMuted: isDark ? '#A3A3A3' : '#737373',
@@ -71,10 +98,16 @@ export default function HseTab({ query }: { query: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
+  const questionRiskByDomain = (data?.question_risk ?? []).reduce<Record<string, QuestionRiskItem[]>>((acc, row) => {
+    if (!acc[row.domain]) acc[row.domain] = []
+    acc[row.domain].push(row)
+    return acc
+  }, {})
+
   useEffect(() => {
     let cancelled = false
 
-    fetch(`/api/dashboard/hse${query ? `?${query}` : ''}`)
+    fetch('/api/dashboard/hse' + (query ? `?${query}` : ''))
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return
@@ -101,7 +134,7 @@ export default function HseTab({ query }: { query: string }) {
       {/* Score médio */}
       <div className="rounded-xl p-5 flex flex-col gap-1" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
         <span className="text-xs uppercase tracking-wide" style={{ color: T.textMuted }}>Score HSE Médio</span>
-        <span className="text-3xl font-bold" style={{ color: T.text }}>{data.avg_score != null ? `${data.avg_score.toFixed(2)} / 4.00` : '—'}</span>
+        <span className="text-3xl font-bold" style={{ color: T.text }}>{data.avg_score == null ? '—' : `${data.avg_score.toFixed(2)} / 4.00`}</span>
       </div>
 
       {/* Distribuição geral */}
@@ -148,6 +181,56 @@ export default function HseTab({ query }: { query: string }) {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Classificação por questão */}
+      <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <h3 className="text-sm font-semibold mb-4" style={{ color: T.textMuted }}>
+          Classificação Média de Risco por Questão
+        </h3>
+        {data.question_risk.length === 0 ? (
+          <p className="text-sm" style={{ color: T.textFaint }}>Sem dados</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {Object.entries(questionRiskByDomain).map(([domain, questions]) => (
+              <div key={domain} className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.border}` }}>
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: T.textMuted, backgroundColor: T.surface2 }}>
+                  {domain}
+                </div>
+                <table className="w-full text-sm">
+                  <thead style={{ backgroundColor: T.surface2 }}>
+                    <tr>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Código</th>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Enunciado</th>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Score médio</th>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Classificação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {questions.map((q) => {
+                      const badge = classificationBadge(q.classification)
+                      return (
+                        <tr key={q.question_code} style={{ borderTop: `1px solid ${T.border}` }}>
+                          <td className="px-3 py-2 font-mono text-xs" style={{ color: T.textMuted }}>{q.question_code}</td>
+                          <td className="px-3 py-2" style={{ color: T.text }}>{q.question_text}</td>
+                          <td className="px-3 py-2 font-semibold" style={{ color: T.text }}>{q.avg_score.toFixed(2)}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className="text-xs px-2 py-1 rounded-full"
+                              style={{ backgroundColor: badge.bg, color: badge.text }}
+                            >
+                              {q.classification}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

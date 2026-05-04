@@ -25,7 +25,26 @@ const DOMAIN_COLORS = [
 ]
 
 interface DomainItem { name: string; avg_score: number; weight: number; classification: string }
-interface RemoteData { domains: DomainItem[]; class_distribution: { name: string; value: number }[]; avg_score: number | null }
+interface QuestionRiskItem {
+  domain: string
+  question_code: string
+  question_text: string
+  avg_score: number
+  classification: string
+  responses: number
+}
+interface RemoteData {
+  domains: DomainItem[]
+  class_distribution: { name: string; value: number }[]
+  avg_score: number | null
+  question_risk: QuestionRiskItem[]
+}
+
+function classificationBadge(classification: string) {
+  if (classification === 'Situação de risco') return { bg: '#EF444422', text: '#EF4444' }
+  if (classification === 'Zona de atenção')   return { bg: '#F5C20022', text: '#F5C200' }
+  return { bg: '#22C55E22', text: '#22C55E' }
+}
 
 function DomainTooltip({ active, payload, label }: TooltipProps) {
   const { theme } = useTheme()
@@ -33,7 +52,6 @@ function DomainTooltip({ active, payload, label }: TooltipProps) {
   const surface = isDark ? '#1A1A1A' : '#FFFFFF'
   const border = isDark ? '#2A2A2A' : '#E5E5E5'
   const text = isDark ? '#FFFFFF' : '#111111'
-  const textMuted = isDark ? '#A3A3A3' : '#737373'
   if (!active || !payload?.length) return null
   const d = payload[0].payload
   const color = CLASS_COLORS[d.classification] ?? '#A3A3A3'
@@ -60,8 +78,15 @@ export default function RemoteTab({ query }: { query: string }) {
     axisY: isDark ? '#A3A3A3' : '#737373',
     cursor: isDark ? '#2A2A2A' : '#F0F0F0',
   }
+  const surface2 = isDark ? '#222222' : '#F5F5F5'
   const [data, setData] = useState<RemoteData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const questionRiskByDomain = (data?.question_risk ?? []).reduce<Record<string, QuestionRiskItem[]>>((acc, row) => {
+    if (!acc[row.domain]) acc[row.domain] = []
+    acc[row.domain].push(row)
+    return acc
+  }, {})
 
   useEffect(() => {
     setLoading(true)
@@ -129,9 +154,56 @@ export default function RemoteTab({ query }: { query: string }) {
         )}
       </div>
 
+      {/* Classificação por questão */}
+      <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <h3 className="text-sm font-semibold mb-4" style={{ color: T.textMuted }}>
+          Classificação Média de Risco por Questão
+        </h3>
+        {(data.question_risk ?? []).length === 0 ? (
+          <p className="text-sm" style={{ color: T.textFaint }}>Sem dados</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {Object.entries(questionRiskByDomain).map(([domain, questions]) => (
+              <div key={domain} className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.border}` }}>
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: T.textMuted, backgroundColor: surface2 }}>
+                  {domain}
+                </div>
+                <table className="w-full text-sm">
+                  <thead style={{ backgroundColor: surface2 }}>
+                    <tr>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Código</th>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Enunciado</th>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Score médio</th>
+                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Classificação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {questions.map((q) => {
+                      const badge = classificationBadge(q.classification)
+                      return (
+                        <tr key={q.question_code} style={{ borderTop: `1px solid ${T.border}` }}>
+                          <td className="px-3 py-2 font-mono text-xs" style={{ color: T.textMuted }}>{q.question_code}</td>
+                          <td className="px-3 py-2" style={{ color: T.text }}>{q.question_text}</td>
+                          <td className="px-3 py-2 font-semibold" style={{ color: T.text }}>{q.avg_score.toFixed(2)}</td>
+                          <td className="px-3 py-2">
+                            <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: badge.bg, color: badge.text }}>
+                              {q.classification}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Cards por domínio */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        {data.domains.map((d, i) => (
+        {data.domains.map((d) => (
           <div key={d.name} className="rounded-xl p-4 flex flex-col gap-2" style={{ backgroundColor: T.surface, border: `1px solid ${CLASS_COLORS[d.classification] ?? T.border}` }}>
             <span className="text-xs font-medium" style={{ color: CLASS_COLORS[d.classification] ?? T.textMuted }}>{d.name}</span>
             <span className="text-2xl font-bold" style={{ color: T.text }}>{d.avg_score.toFixed(2)}</span>

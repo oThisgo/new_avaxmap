@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { decryptFieldOrNull } from '@/lib/security/crypto'
 
 function buildFilters(params: URLSearchParams) {
   const filters: Record<string, string> = {}
@@ -39,7 +40,8 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('collaborators')
-    .select('birth_date, gender, race_color, education_level, marital_status, disability')
+    .select('birth_date, gender, race_color, education_level, marital_status, disability, which_disability')
+    .eq('has_answered', true)
   for (const [k, v] of Object.entries(filters)) {
     query = query.eq(k, v)
   }
@@ -51,10 +53,18 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     gender: countBy(rows.map((r) => r.gender ?? '')),
-    age_range: countBy(rows.map((r) => getAgeRange(r.birth_date))),
+    age_range: countBy(rows.map((r) => getAgeRange(decryptFieldOrNull(r.birth_date)))),
     race_color: countBy(rows.map((r) => r.race_color ?? '')),
-    education_level: countBy(rows.map((r) => r.education_level ?? '')),
-    marital_status: countBy(rows.map((r) => r.marital_status ?? '')),
-    disability: countBy(rows.map((r) => r.disability ?? '')),
+    education_level: countBy(rows.map((r) => decryptFieldOrNull(r.education_level) ?? '')),
+    marital_status: countBy(rows.map((r) => decryptFieldOrNull(r.marital_status) ?? '')),
+    disability: countBy(rows.map((r) => decryptFieldOrNull(r.disability) ?? '')),
+    disability_types: countBy(
+      rows
+        .filter((r) => {
+          const v = ((r as Record<string, unknown>).which_disability as string | null | undefined)
+          return typeof v === 'string' && v.trim().length > 0
+        })
+        .map((r) => ((r as Record<string, unknown>).which_disability as string).trim())
+    ),
   })
 }
