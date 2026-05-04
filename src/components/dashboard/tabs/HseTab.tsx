@@ -19,20 +19,10 @@ const CLASS_COLORS: Record<string, string> = {
   'Alto risco': '#EF4444',
 }
 
-const DOMAIN_COLORS: Record<string, string> = {
-  'Demandas': '#EF4444',
-  'Controle': '#3B82F6',
-  'Apoio da Chefia': '#8B5CF6',
-  'Apoio dos Colegas': '#06B6D4',
-  'Relacionamentos': '#F97316',
-  'Cargo': '#22C55E',
-  'Comunicação e Mudanças': '#F5C200',
-}
-
 const DOMAIN_DESCRIPTIONS: Record<string, string> = {
   'Demandas': 'Avalia a carga de trabalho, incluindo ritmo, volume, atenção exigida e carga emocional.',
   'Controle': 'Investiga o nível de autonomia e influência que o trabalhador tem sobre como realiza suas tarefas e o ritmo de trabalho.',
-  'Apoio da Chefia': 'Avalia o suporte, incentivo e recursos fornecidos pela liderança direta.',
+  'Apoio da Liderança': 'Avalia o suporte, incentivo e recursos fornecidos pela liderança direta.',
   'Apoio dos Colegas': 'Avalia o apoio social, colaboração e ajuda recebida dos colegas de trabalho.',
   'Relacionamentos': 'Investiga a promoção de um ambiente de trabalho positivo, prevenção de conflitos e comportamento inaceitável.',
   'Cargo': 'Mensura a clareza sobre responsabilidades, metas e se há conflitos de função.',
@@ -79,17 +69,32 @@ export default function HseTab({ query }: { query: string }) {
   }
   const [data, setData] = useState<HseData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
-    setLoading(true)
+    let cancelled = false
+
     fetch(`/api/dashboard/hse${query ? `?${query}` : ''}`)
       .then((r) => r.json())
-      .then((d) => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then((d) => {
+        if (cancelled) return
+        setData(d)
+        setError(false)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setError(true)
+        setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [query])
 
   if (loading) return <p className="text-sm" style={{ color: T.textMuted }}>Carregando...</p>
-  if (!data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
+  if (error || !data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
 
   return (
     <div className="flex flex-col gap-6">

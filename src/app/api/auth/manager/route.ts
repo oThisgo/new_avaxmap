@@ -3,6 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { createHash, timingSafeEqual } from 'crypto'
 import { compare, hash } from 'bcryptjs'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
+import { unwrapHash } from '@/lib/auth/password'
 
 const AUTH_WINDOW_MS = 60_000
 const AUTH_LIMIT = 6
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   const storedHash = manager?.password_hash ?? ''
+  const unwrapped = unwrapHash(storedHash)
 
   // Mantém custo de verificação mesmo quando usuário não existe.
   if (!storedHash) {
@@ -69,11 +71,11 @@ export async function POST(request: NextRequest) {
   let match = false
   let usedLegacyHash = false
 
-  if (isBcryptHash(storedHash)) {
-    match = await compare(password, storedHash)
+  if (isBcryptHash(unwrapped.hash)) {
+    match = await compare(password, unwrapped.hash)
   } else {
     usedLegacyHash = true
-    match = timingSafeLegacyMatch(password, storedHash)
+    match = timingSafeLegacyMatch(password, unwrapped.hash)
   }
 
   if (error || !manager || !match || !manager.is_active) {
@@ -104,12 +106,17 @@ export async function POST(request: NextRequest) {
     path: '/',
   }
 
-  const response = NextResponse.json({ ok: true })
+  const response = NextResponse.json({ ok: true, must_change_password: unwrapped.temporary })
   response.cookies.set('manager_session', sessionToken, { ...cookieOpts, httpOnly: true })
   // Cookie não-httpOnly apenas para exibição do nome/role no UI (sem dados sensíveis)
   response.cookies.set(
     'manager_display',
-    JSON.stringify({ name: manager.name ?? '', email: normalizedEmail, role: manager.role ?? 'manager' }),
+    JSON.stringify({
+      name: manager.name ?? '',
+      email: normalizedEmail,
+      role: manager.role ?? 'manager',
+      must_change_password: unwrapped.temporary,
+    }),
     { ...cookieOpts, httpOnly: false },
   )
 

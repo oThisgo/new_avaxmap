@@ -23,7 +23,7 @@ const PROTECTIVE = new Set([
 const DOMAINS: Record<string, string[]> = {
   'Demandas':               ['Q03', 'Q06', 'Q09', 'Q12', 'Q16', 'Q18', 'Q20', 'Q22'],
   'Controle':               ['Q02', 'Q10', 'Q15', 'Q19', 'Q25', 'Q30'],
-  'Apoio da Chefia':        ['Q08', 'Q23', 'Q29', 'Q33', 'Q35'],
+  'Apoio da Liderança':        ['Q08', 'Q23', 'Q29', 'Q33', 'Q35'],
   'Apoio dos Colegas':      ['Q07', 'Q24', 'Q27', 'Q31'],
   'Relacionamentos':        ['Q05', 'Q14', 'Q21', 'Q34'],
   'Cargo':                  ['Q01', 'Q04', 'Q11', 'Q13', 'Q17'],
@@ -33,7 +33,7 @@ const DOMAINS: Record<string, string[]> = {
 const WEIGHTS: Record<string, number> = {
   'Demandas':               0.20,
   'Controle':               0.15,
-  'Apoio da Chefia':        0.15,
+  'Apoio da Liderança':     0.15,
   'Apoio dos Colegas':      0.10,
   'Relacionamentos':        0.15,
   'Cargo':                  0.10,

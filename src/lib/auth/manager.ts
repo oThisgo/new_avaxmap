@@ -2,12 +2,14 @@ import { createServerClient } from '@/lib/supabase/server'
 
 const SESSION_MAX_AGE_MS = 60 * 60 * 8 * 1000
 const SESSION_CLOCK_SKEW_MS = 60 * 1000
+const TEMP_PASSWORD_PREFIX = 'temp$'
 
 export interface ManagerSession {
   id: string
   name: string
   email: string
   role: string // 'superuser' | 'admin' | 'manager'
+  mustChangePassword: boolean
 }
 
 function parseSessionToken(sessionToken: string): { managerId: string; issuedAt: number } | null {
@@ -35,12 +37,18 @@ export async function getManagerFromSession(
     const supabase = createServerClient()
     const { data, error } = await supabase
       .from('managers')
-      .select('id, name, email, role, is_active')
+      .select('id, name, email, role, is_active, password_hash')
       .eq('id', parsed.managerId)
       .single()
 
     if (error || !data || !data.is_active) return null
-    return { id: data.id, name: data.name ?? '', email: data.email ?? '', role: data.role ?? 'manager' }
+    return {
+      id: data.id,
+      name: data.name ?? '',
+      email: data.email ?? '',
+      role: data.role ?? 'manager',
+      mustChangePassword: (data.password_hash ?? '').startsWith(TEMP_PASSWORD_PREFIX),
+    }
   } catch {
     return null
   }
@@ -48,4 +56,8 @@ export async function getManagerFromSession(
 
 export function isAdmin(role: string): boolean {
   return role === 'superuser' || role === 'admin'
+}
+
+export function isSuperuser(role: string): boolean {
+  return role === 'superuser'
 }

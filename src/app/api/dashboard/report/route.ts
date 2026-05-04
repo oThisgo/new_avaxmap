@@ -45,11 +45,25 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const format = request.nextUrl.searchParams.get('format') ?? 'json'
+  const area = request.nextUrl.searchParams.get('area') ?? ''
+  const role = request.nextUrl.searchParams.get('role') ?? ''
+  const gender = request.nextUrl.searchParams.get('gender') ?? ''
+  const raceColor = request.nextUrl.searchParams.get('race_color') ?? ''
+  const employmentType = request.nextUrl.searchParams.get('employment_type') ?? ''
+  const hasFilters = !!(area || role || gender || raceColor || employmentType)
 
   const supabase = createServerClient()
-  const { data, error } = await supabase
+  let query = supabase
     .from('collaborators')
     .select('id, area, role, employment_type, gender, race_color, has_answered')
+
+  if (area) query = query.eq('area', area)
+  if (role) query = query.eq('role', role)
+  if (gender) query = query.eq('gender', gender)
+  if (raceColor) query = query.eq('race_color', raceColor)
+  if (employmentType) query = query.eq('employment_type', employmentType)
+
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -76,6 +90,7 @@ export async function GET(request: NextRequest) {
 
   const reportData = {
     generated_at: new Date().toISOString(),
+    filters: hasFilters ? { area: area || null, role: role || null, gender: gender || null, race_color: raceColor || null, employment_type: employmentType || null } : null,
     summary: { total, answered, pct },
     by_area: buildAdhesionTable(collabs, 'area'),
     by_role: buildAdhesionTable(collabs, 'role'),
@@ -95,9 +110,22 @@ export async function GET(request: NextRequest) {
     const dateStr = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 
     // Aba Resumo
+    const filterRows = hasFilters
+      ? [
+          ['Filtros ativos:'],
+          ...(area ? [['Área:', area]] : []),
+          ...(role ? [['Cargo:', role]] : []),
+          ...(gender ? [['Gênero:', gender]] : []),
+          ...(raceColor ? [['Raça/Cor:', raceColor]] : []),
+          ...(employmentType ? [['Vínculo:', employmentType]] : []),
+          [],
+        ]
+      : []
+
     const wsSummary = XLSX.utils.aoa_to_sheet([
       ['Relatório de Adesão — Instituto Alana'],
       ['Gerado em:', dateStr],
+      ...filterRows,
       [],
       ['RESUMO GERAL'],
       ['Total de Colaboradores', 'Responderam', 'Taxa de Adesão (%)'],

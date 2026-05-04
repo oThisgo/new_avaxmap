@@ -121,6 +121,13 @@ interface ActiveFilters {
   employment_type: string
 }
 
+interface ManagerDisplay {
+  name: string
+  email: string
+  role: string
+  must_change_password?: boolean
+}
+
 export default function DashboardShell() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -152,7 +159,7 @@ export default function DashboardShell() {
   const [filters, setFilters] = useState<ActiveFilters>({
     area: '', role: '', gender: '', race_color: '', employment_type: '',
   })
-  const [managerDisplay, setManagerDisplay] = useState<{ name: string; email: string; role: string } | null>(null)
+  const [managerDisplay, setManagerDisplay] = useState<ManagerDisplay | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [reportMenuOpen, setReportMenuOpen] = useState(false)
@@ -179,6 +186,23 @@ export default function DashboardShell() {
     }
   }, [])
 
+  // Bloqueia o dashboard quando a conta está com senha temporária.
+  useEffect(() => {
+    fetch('/api/auth/manager/me')
+      .then(async (res) => {
+        if (!res.ok) throw new Error('unauthorized')
+        return res.json()
+      })
+      .then((me) => {
+        if (me.must_change_password) {
+          router.replace('/dashboard/reset-password?first_access=1')
+        }
+      })
+      .catch(() => {
+        router.replace('/manager/login')
+      })
+  }, [router])
+
   // Fecha menus ao clicar fora
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -198,11 +222,18 @@ export default function DashboardShell() {
     router.push('/manager/login')
   }
 
+  function handleGoToResetPassword() {
+    setMenuOpen(false)
+    setMobileMenuOpen(false)
+    router.push('/dashboard/reset-password')
+  }
+
   async function handleDownloadPDF() {
     setReportLoading(true)
     setReportMenuOpen(false)
     try {
-      const res = await fetch('/api/dashboard/report?format=json')
+      const q = buildQuery()
+      const res = await fetch('/api/dashboard/report?format=json' + (q ? '&' + q : ''))
       if (!res.ok) throw new Error('Falha ao buscar dados')
       const data = await res.json()
 
@@ -227,14 +258,31 @@ export default function DashboardShell() {
       doc.setTextColor(80, 80, 80)
       doc.text(`Gerado em ${dateStr}  •  Dados de participação apenas (sem dados de risco)`, 14, 22)
 
+      // Filtros ativos
+      let resumoY = 32
+      if (data.filters) {
+        const filterParts: string[] = []
+        if (data.filters.area) filterParts.push(`Área: ${data.filters.area}`)
+        if (data.filters.role) filterParts.push(`Cargo: ${data.filters.role}`)
+        if (data.filters.gender) filterParts.push(`Gênero: ${data.filters.gender}`)
+        if (data.filters.race_color) filterParts.push(`Raça/Cor: ${data.filters.race_color}`)
+        if (data.filters.employment_type) filterParts.push(`Vínculo: ${data.filters.employment_type}`)
+        if (filterParts.length > 0) {
+          doc.setFontSize(8)
+          doc.setTextColor(120, 80, 0)
+          doc.text(`Filtros: ${filterParts.join('  •  ')}`, 14, 28)
+          resumoY = 38
+        }
+      }
+
       // Resumo
       doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(...TEXT_DARK)
-      doc.text('Resumo Geral', 14, 32)
+      doc.text('Resumo Geral', 14, resumoY)
 
       autoTable(doc, {
-        startY: 36,
+        startY: resumoY + 4,
         head: [['Total de Colaboradores', 'Responderam', 'Taxa de Adesão']],
         body: [[data.summary.total, data.summary.answered, `${data.summary.pct}%`]],
         headStyles: { fillColor: HEADER_COLOR, textColor: TEXT_DARK, fontStyle: 'bold', fontSize: 9 },
@@ -291,7 +339,8 @@ export default function DashboardShell() {
 
   function handleDownloadXLSX() {
     setReportMenuOpen(false)
-    window.open('/api/dashboard/report?format=xlsx', '_blank')
+    const q = buildQuery()
+    window.open('/api/dashboard/report?format=xlsx' + (q ? '&' + q : ''), '_blank')
   }
 
   useEffect(() => {
@@ -421,6 +470,23 @@ export default function DashboardShell() {
               Importar CSV
             </a>
           )}
+          {managerDisplay && managerDisplay.role === 'superuser' && (
+            <a
+              href="/admin/managers"
+              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
+              style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#F5C200'; e.currentTarget.style.borderColor = '#F5C200' }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="8.5" cy="7" r="4" />
+                <line x1="20" y1="8" x2="20" y2="14" />
+                <line x1="23" y1="11" x2="17" y2="11" />
+              </svg>
+              Gestores
+            </a>
+          )}
           {managerDisplay && (
             <div className="relative" ref={menuRef}>
               <button
@@ -450,6 +516,19 @@ export default function DashboardShell() {
                     <p className="text-sm font-semibold" style={{ color: T.text }}>{managerDisplay.name}</p>
                     <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>{managerDisplay.email}</p>
                   </div>
+                  <button
+                    onClick={handleGoToResetPassword}
+                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors"
+                    style={{ color: T.text }}
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    Redefinir senha
+                  </button>
                   <button
                     onClick={handleLogout}
                     className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors"
@@ -561,6 +640,33 @@ export default function DashboardShell() {
                     Importar CSV
                   </a>
                 )}
+                {managerDisplay.role === 'superuser' && (
+                  <a
+                    href="/admin/managers"
+                    className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
+                    style={{ color: T.adminText }}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="8.5" cy="7" r="4" />
+                      <line x1="20" y1="8" x2="20" y2="14" />
+                      <line x1="23" y1="11" x2="17" y2="11" />
+                    </svg>
+                    Gestores
+                  </a>
+                )}
+                <button
+                  onClick={handleGoToResetPassword}
+                  className="w-full text-left flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
+                  style={{ color: T.textMuted }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  Redefinir senha
+                </button>
                 <button
                   onClick={() => { setMobileMenuOpen(false); handleLogout() }}
                   className="w-full text-left flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"

@@ -42,6 +42,11 @@ export default function ManagerLoginPage() {
         return
       }
 
+      if (data.must_change_password) {
+        router.push('/dashboard/reset-password?first_access=1')
+        return
+      }
+
       router.push('/dashboard')
     } catch {
       setError('Erro de conexão. Tente novamente.')

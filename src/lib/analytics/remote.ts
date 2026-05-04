@@ -37,7 +37,7 @@ const WEIGHTS: Record<string, number> = {
   'Produtividade':2.0,
 }
 
-const TOTAL_WEIGHT = Object.values(WEIGHTS).reduce((s, v) => s + v, 0) // 13.5
+const TOTAL_WEIGHT = Object.values(WEIGHTS).reduce((s, v) => s + v, 0) // 12.5
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 export type RemoteClassification = 'Condição adequada' | 'Zona de atenção' | 'Situação de risco'
