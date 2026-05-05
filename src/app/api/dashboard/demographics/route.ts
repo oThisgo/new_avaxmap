@@ -13,8 +13,18 @@ function buildFilters(params: URLSearchParams) {
 
 function getAgeRange(birthDate: string | null): string | null {
   if (!birthDate) return null
-  const birth = new Date(birthDate)
-  const age = new Date().getFullYear() - birth.getFullYear()
+  // Suporta DD/MM/YYYY (formato do CSV) e YYYY-MM-DD
+  let normalized = birthDate
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(birthDate)) {
+    const [day, month, year] = birthDate.split('/')
+    normalized = `${year}-${month}-${day}`
+  }
+  const birth = new Date(normalized)
+  if (isNaN(birth.getTime())) return null
+  const today = new Date()
+  let age = today.getFullYear() - birth.getFullYear()
+  const monthDiff = today.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--
   if (age < 25) return 'Até 24'
   if (age < 35) return '25–34'
   if (age < 45) return '35–44'
