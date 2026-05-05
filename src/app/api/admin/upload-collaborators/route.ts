@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession, isAdmin } from '@/lib/auth/manager'
 import { hashCpf, encryptFieldOrNull } from '@/lib/security/crypto'
 
-// ─── CSV parser mínimo com suporte a campos com vírgula entre aspas ──────────
+// ─── CSV parser mínimo com suporte a campos com ponto-e-vírgula entre aspas ─
 function parseCsvRow(row: string): string[] {
   const result: string[] = []
   let current = ''
@@ -13,7 +13,7 @@ function parseCsvRow(row: string): string[] {
     if (ch === '"') {
       if (inQuotes && row[i + 1] === '"') { current += '"'; i++ }
       else inQuotes = !inQuotes
-    } else if (ch === ',' && !inQuotes) {
+    } else if (ch === ';' && !inQuotes) {
       result.push(current.trim())
       current = ''
     } else {
@@ -28,7 +28,7 @@ function normalizeCpf(raw: string): string {
   return raw.replace(/[.\-\s]/g, '').trim()
 }
 
-// Colunas do CSV (0-indexed):
+// Colunas do CSV (0-indexed, separador: ponto-e-vírgula):
 // 0: Nome completo → name
 // 1: CPF → cpf
 // 2: Data de nascimento → birth_date
@@ -39,7 +39,9 @@ function normalizeCpf(raw: string): string {
 // 7: Variável de estratificação 4 (raça) → race_color
 // 8: Variável de estratificação 5 (idade) → IGNORADO
 // 9: Vínculo → employment_type
-// 10: Organização → organization
+// 10: Escolaridade → education_level (criptografado)
+// 11: Estado Civil → marital_status (criptografado)
+// 12: Deficiência → disability + which_disability (lógica abaixo)
 
 export async function POST(request: NextRequest) {
   const sessionToken = request.cookies.get('manager_session')?.value
@@ -83,7 +85,10 @@ export async function POST(request: NextRequest) {
     gender: string | null
     race_color: string | null
     employment_type: string | null
-    organization: string | null
+    education_level: string | null
+    marital_status: string | null
+    disability: string | null
+    which_disability: string | null
   }
 
   const rows: CollaboratorRow[] = []
@@ -99,6 +104,9 @@ export async function POST(request: NextRequest) {
       continue
     }
 
+    const disabilityCol = (cols[12] ?? '').trim()
+    const hasDisability = disabilityCol.toLowerCase() !== 'sem deficiência' && disabilityCol !== ''
+
     rows.push({
       cpf: hashCpf(cpf),
       name: encryptFieldOrNull(cols[0]) ?? '',
@@ -109,7 +117,10 @@ export async function POST(request: NextRequest) {
       gender: cols[6] || null,
       race_color: cols[7] || null,
       employment_type: cols[9] || null,
-      organization: cols[10] || null,
+      education_level: encryptFieldOrNull(cols[10] ?? null),
+      marital_status: encryptFieldOrNull(cols[11] ?? null),
+      disability: encryptFieldOrNull(hasDisability ? 'sim' : 'não'),
+      which_disability: hasDisability ? disabilityCol : null,
     })
   }
 

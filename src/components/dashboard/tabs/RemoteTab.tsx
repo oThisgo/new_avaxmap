@@ -89,8 +89,9 @@ export default function RemoteTab({ query }: { query: string }) {
   }, {})
 
   useEffect(() => {
+    const url = query ? `/api/dashboard/remote?${query}` : '/api/dashboard/remote'
     setLoading(true)
-    fetch(`/api/dashboard/remote${query ? `?${query}` : ''}`)
+    fetch(url)
       .then((r) => r.json())
       .then((d) => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
