@@ -10,34 +10,24 @@ const REMOTE_SCALE: Record<string, number> = {
   'sempre': 5,
 }
 
-// ─── Apenas TR14 é invertido: score = 6 - resposta ───────────────────────────
-const INVERTED = new Set(['TR14'])
+// ─── Questões negativamente phrased: score = 6 - resposta ─────────────────
+// TRN01: "Sinto sobrecarga..."  → mais frequência = pior
+// TRN02: "Trabalho além do horário" → mais frequência = pior
+const INVERTED = new Set(['TRN01', 'TRN02'])
 
 // ─── Mapeamento de domínios ───────────────────────────────────────────────────
 const DOMAINS: Record<string, string[]> = {
-  'Demandas':     ['TR01', 'TR02'],
-  'Controle':     ['TR03', 'TR04'],
-  'Suporte':      ['TR05', 'TR06'],
-  'Comunicação':  ['TR07', 'TR08'],
-  'Papel':        ['TR09', 'TR10'],
-  'Limites':      ['TR11', 'TR12'],
-  'Ambiente':     ['TR13', 'TR14'],
-  'Produtividade':['TR15', 'TR16'],
+  'Demanda':  ['TRN01'],
+  'Controle': ['TRN02', 'TRN03'],
 }
 
 // Pesos absolutos — IETR = Σ(media_dominio * peso) / Σ(pesos)
 const WEIGHTS: Record<string, number> = {
-  'Demandas':     2.0,
-  'Controle':     1.5,
-  'Suporte':      1.5,
-  'Comunicação':  1.5,
-  'Papel':        1.0,
-  'Limites':      2.0,
-  'Ambiente':     1.0,
-  'Produtividade':2.0,
+  'Demanda':  2.0,
+  'Controle': 1.5,
 }
 
-const TOTAL_WEIGHT = Object.values(WEIGHTS).reduce((s, v) => s + v, 0) // 12.5
+const TOTAL_WEIGHT = Object.values(WEIGHTS).reduce((s, v) => s + v, 0) // 3.5
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 export type RemoteClassification = 'Condição adequada' | 'Zona de atenção' | 'Situação de risco'

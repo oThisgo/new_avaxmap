@@ -25,22 +25,9 @@ interface ResponseAnswerEntry {
 type QuestionMeta = { domain: string; code: string; text: string }
 
 const REMOTE_QUESTIONS: QuestionMeta[] = [
-  { domain: 'Demandas',     code: 'TR01', text: 'O volume de trabalho no formato remoto é compatível com o tempo disponível' },
-  { domain: 'Demandas',     code: 'TR02', text: 'O ritmo de trabalho no formato remoto é adequado' },
-  { domain: 'Controle',     code: 'TR03', text: 'Tenho autonomia para organizar minha rotina de trabalho remoto' },
-  { domain: 'Controle',     code: 'TR04', text: 'Posso decidir como executar minhas atividades no trabalho remoto' },
-  { domain: 'Suporte',      code: 'TR05', text: 'Os recursos tecnológicos disponíveis são adequados para o trabalho remoto' },
-  { domain: 'Suporte',      code: 'TR06', text: 'Recebo o suporte necessário para realizar o trabalho remoto' },
-  { domain: 'Comunicação',  code: 'TR07', text: 'A comunicação com a equipe ocorre de forma adequada no trabalho remoto' },
-  { domain: 'Comunicação',  code: 'TR08', text: 'Há alinhamento suficiente para a execução das atividades' },
-  { domain: 'Papel',        code: 'TR09', text: 'Tenho clareza sobre minhas responsabilidades no trabalho remoto' },
-  { domain: 'Papel',        code: 'TR10', text: 'As expectativas em relação ao meu trabalho estão definidas' },
-  { domain: 'Limites',      code: 'TR11', text: 'A jornada de trabalho remoto ocorre dentro do horário previsto' },
-  { domain: 'Limites',      code: 'TR12', text: 'Há separação entre o tempo de trabalho e o tempo pessoal' },
-  { domain: 'Ambiente',     code: 'TR13', text: 'O ambiente em que realizo o trabalho remoto é adequado' },
-  { domain: 'Ambiente',     code: 'TR14', text: 'O ambiente doméstico apresenta interferências durante o trabalho' },
-  { domain: 'Produtividade',code: 'TR15', text: 'O trabalho remoto permite a realização das atividades conforme esperado' },
-  { domain: 'Produtividade',code: 'TR16', text: 'O trabalho remoto permite manter a concentração nas tarefas' },
+  { domain: 'Demanda',  code: 'TRN01', text: 'Sinto sobrecarga devido à quantidade de canais de comunicação (e-mail, slack, reuniões, etc.)' },
+  { domain: 'Controle', code: 'TRN02', text: 'Trabalho além do horário previsto' },
+  { domain: 'Controle', code: 'TRN03', text: 'Consigo equilibrar bem minha vida pessoal e profissional' },
 ]
 
 const REMOTE_Q_BY_CODE = new Map(REMOTE_QUESTIONS.map((q) => [q.code, q]))

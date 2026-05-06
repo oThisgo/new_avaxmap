@@ -2,7 +2,7 @@ import type { TallyField, TallyWebhookPayload } from './types'
 
 // Nomes técnicos por módulo
 const HSE_CODES = Array.from({ length: 35 }, (_, i) => `Q${String(i + 1).padStart(2, '0')}`)
-const REMOTE_CODES = Array.from({ length: 16 }, (_, i) => `TR${String(i + 1).padStart(2, '0')}`)
+const REMOTE_CODES = ['TRN01', 'TRN02', 'TRN03']
 const SOCIO_CODES = ['remote_status', 'job_observations']
 
 /**
