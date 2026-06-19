@@ -21,15 +21,14 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            // frame-src permite que a página /formulario embede o Tally via iframe
+            // Política de segurança para o formulário nativo e dashboard
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://tally.so",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self' data: https://fonts.gstatic.com",
               "connect-src 'self' https://*.supabase.co",
-              "frame-src https://tally.so",
             ].join("; "),
           },
         ],

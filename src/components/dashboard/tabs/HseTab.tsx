@@ -6,6 +6,7 @@ import {
   PieChart, Pie, Legend,
 } from 'recharts'
 import { useTheme } from '@/components/ThemeProvider'
+import { BRAND_COLORS } from '@/lib/brand'
 
 interface TooltipProps {
   active?: boolean
@@ -26,18 +27,18 @@ interface QuestionRiskItem {
 
 function classificationBadge(classification: string) {
   if (classification === 'Alto risco') {
-    return { bg: '#EF444422', text: '#EF4444' }
+    return { bg: `${BRAND_COLORS.danger}22`, text: BRAND_COLORS.danger }
   }
   if (classification === 'Risco moderado') {
-    return { bg: '#F5C20022', text: '#F5C200' }
+    return { bg: `${BRAND_COLORS.warning}22`, text: BRAND_COLORS.warning }
   }
-  return { bg: '#22C55E22', text: '#22C55E' }
+  return { bg: `${BRAND_COLORS.success}22`, text: BRAND_COLORS.success }
 }
 
 const CLASS_COLORS: Record<string, string> = {
-  'Baixo risco': '#22C55E',
-  'Risco moderado': '#F5C200',
-  'Alto risco': '#EF4444',
+  'Baixo risco': BRAND_COLORS.success,
+  'Risco moderado': BRAND_COLORS.warning,
+  'Alto risco': BRAND_COLORS.danger,
 }
 
 const DOMAIN_DESCRIPTIONS: Record<string, string> = {

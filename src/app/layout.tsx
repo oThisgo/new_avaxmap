@@ -8,9 +8,9 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Sua experiência no trabalho importa | Instituto Alana",
+  title: "Sua experiência no trabalho importa | BeeTouch",
   description:
-    "Plataforma de mapeamento de riscos psicossociais do Instituto Alana.",
+    "Plataforma de mapeamento de riscos psicossociais da BeeTouch.",
 };
 
 export default function RootLayout({

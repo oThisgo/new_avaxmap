@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { IETR_QUESTIONS } from '@/lib/analytics/ietr-definition'
 
 function buildFilters(params: URLSearchParams) {
   const filters: Record<string, string> = {}
@@ -24,13 +25,18 @@ interface ResponseAnswerEntry {
 
 type QuestionMeta = { domain: string; code: string; text: string }
 
-const REMOTE_QUESTIONS: QuestionMeta[] = [
-  { domain: 'Demanda',  code: 'TRN01', text: 'Sinto sobrecarga devido à quantidade de canais de comunicação (e-mail, slack, reuniões, etc.)' },
-  { domain: 'Controle', code: 'TRN02', text: 'Trabalho além do horário previsto' },
-  { domain: 'Controle', code: 'TRN03', text: 'Consigo equilibrar bem minha vida pessoal e profissional' },
-]
+const REMOTE_QUESTIONS: QuestionMeta[] = IETR_QUESTIONS.map((q) => ({
+  domain: q.domain,
+  code: q.code,
+  text: q.text,
+}))
 
 const REMOTE_Q_BY_CODE = new Map(REMOTE_QUESTIONS.map((q) => [q.code, q]))
+
+function normalizeRemoteDomainName(domain: string): string {
+  if (domain === 'Demanda') return 'Demandas'
+  return domain
+}
 
 function classifyRemote(avg: number): 'Condição adequada' | 'Zona de atenção' | 'Situação de risco' {
   if (avg >= 4) return 'Condição adequada'
@@ -81,9 +87,12 @@ export async function GET(request: NextRequest) {
     if ((r as { remote_score?: number | null }).remote_score != null) { scoreSum += (r as { remote_score: number }).remote_score; scoreCount++ }
     if (Array.isArray(r.remote_domains)) {
       for (const d of r.remote_domains as RemoteDomainEntry[]) {
-        if (!domainAgg[d.domain]) domainAgg[d.domain] = { sum: 0, count: 0, weight: d.weight }
-        domainAgg[d.domain].sum += d.score
-        domainAgg[d.domain].count++
+        const normalizedDomain = normalizeRemoteDomainName(d.domain)
+        if (!domainAgg[normalizedDomain]) {
+          domainAgg[normalizedDomain] = { sum: 0, count: 0, weight: d.weight }
+        }
+        domainAgg[normalizedDomain].sum += d.score
+        domainAgg[normalizedDomain].count++
       }
     }
     if (Array.isArray((r as { answers?: ResponseAnswerEntry[] | null }).answers)) {

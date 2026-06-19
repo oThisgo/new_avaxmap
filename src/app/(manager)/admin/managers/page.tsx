@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { BRAND_COLORS } from '@/lib/brand'
 
 type ManagerRow = {
   id: string
@@ -23,13 +24,13 @@ export default function ManagersAdminPage() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const T = {
-    bg: isDark ? '#111111' : '#F8F8F8',
-    surface: isDark ? '#1A1A1A' : '#FFFFFF',
-    surface2: isDark ? '#222222' : '#F5F5F5',
-    border: isDark ? '#2A2A2A' : '#E5E5E5',
-    text: isDark ? '#FFFFFF' : '#111111',
-    textMuted: isDark ? '#A3A3A3' : '#737373',
-    textFaint: isDark ? '#525252' : '#A3A3A3',
+    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
+    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
+    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
+    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
+    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
   }
 
   const [managers, setManagers] = useState<ManagerRow[]>([])
@@ -195,9 +196,9 @@ export default function ManagersAdminPage() {
           )}
 
           {temporaryPassword && (
-            <div className="rounded-lg px-4 py-3 mb-4" style={{ backgroundColor: '#F5C20022', border: '1px solid #F5C20066' }}>
+            <div className="rounded-lg px-4 py-3 mb-4" style={{ backgroundColor: `${BRAND_COLORS.primary}22`, border: `1px solid ${BRAND_COLORS.primary}66` }}>
               <p className="text-xs uppercase tracking-wide mb-1" style={{ color: T.textFaint }}>Senha temporária gerada</p>
-              <p className="text-lg font-semibold" style={{ color: '#F5C200' }}>{temporaryPassword}</p>
+              <p className="text-lg font-semibold" style={{ color: BRAND_COLORS.primary }}>{temporaryPassword}</p>
               <p className="text-xs mt-1" style={{ color: T.textMuted }}>
                 Entregue essa senha ao gestor. No primeiro login ele será obrigado a definir a senha definitiva.
               </p>
@@ -227,7 +228,7 @@ export default function ManagersAdminPage() {
                       <td className="px-3 py-2">{m.role}</td>
                       <td className="px-3 py-2">
                         {m.temp_password_plain ? (
-                          <span className="font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: '#F5C20015', color: '#F5C200', border: '1px solid #F5C20040' }}>
+                          <span className="font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: `${BRAND_COLORS.primary}15`, color: BRAND_COLORS.primary, border: `1px solid ${BRAND_COLORS.primary}40` }}>
                             {m.temp_password_plain}
                           </span>
                         ) : (
@@ -238,8 +239,8 @@ export default function ManagersAdminPage() {
                         <span
                           className="text-xs px-2 py-1 rounded-full"
                           style={{
-                            backgroundColor: m.must_change_password ? '#F5C20022' : '#22C55E22',
-                            color: m.must_change_password ? '#F5C200' : '#22C55E',
+                            backgroundColor: m.must_change_password ? `${BRAND_COLORS.primary}22` : '#22C55E22',
+                            color: m.must_change_password ? BRAND_COLORS.primary : '#22C55E',
                           }}
                         >
                           {m.must_change_password ? 'Pendente' : 'Concluído'}
@@ -329,7 +330,7 @@ export default function ManagersAdminPage() {
                 className="w-full rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
                 style={{
                   backgroundColor: T.surface2,
-                  border: `1px solid ${roleMenuOpen ? '#F5C200' : T.border}`,
+                  border: `1px solid ${roleMenuOpen ? BRAND_COLORS.primary : T.border}`,
                   color: T.text,
                 }}
                 onMouseEnter={(e) => {
@@ -364,13 +365,13 @@ export default function ManagersAdminPage() {
                         setRoleMenuOpen(false)
                       }}
                       className="w-full text-left px-4 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
-                      style={{ color: option === role ? '#F5C200' : T.text, fontWeight: option === role ? 600 : 400 }}
+                      style={{ color: option === role ? BRAND_COLORS.primary : T.text, fontWeight: option === role ? 600 : 400 }}
                       onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.surface2 }}
                       onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
                     >
                       <span>{option}</span>
                       {option === role && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F5C200" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND_COLORS.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
                       )}
@@ -383,9 +384,9 @@ export default function ManagersAdminPage() {
               type="submit"
               disabled={submitting}
               className="rounded-lg py-2 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              style={{ backgroundColor: '#F5C200', color: '#111111' }}
-              onMouseEnter={(e) => { if (!submitting) e.currentTarget.style.backgroundColor = '#D4A800' }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#F5C200' }}
+              style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
+              onMouseEnter={(e) => { if (!submitting) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
             >
               {submitting ? 'Criando...' : 'Criar gestor'}
             </button>

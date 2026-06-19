@@ -1,11 +1,11 @@
+import { ThemeProvider } from '@/components/ThemeProvider'
+
 export default function AppLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   return (
-    <div className="min-h-screen bg-[#111111] text-white overflow-hidden">
-      {children}
-    </div>
+    <ThemeProvider>{children}</ThemeProvider>
   )
 }

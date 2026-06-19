@@ -1,3 +1,11 @@
+import {
+  IETR_CODES,
+  IETR_DOMAIN_WEIGHTS,
+  IETR_INVERTED_CODES,
+  IETR_QUESTIONS,
+  type IetrDomain,
+} from './ietr-definition'
+
 // ─── Escala IETR ─────────────────────────────────────────────────────────────
 // 1 = Nunca | 2 = Raramente | 3 = Às vezes | 4 = Frequentemente | 5 = Sempre
 
@@ -10,24 +18,23 @@ const REMOTE_SCALE: Record<string, number> = {
   'sempre': 5,
 }
 
-// ─── Questões negativamente phrased: score = 6 - resposta ─────────────────
-// TRN01: "Sinto sobrecarga..."  → mais frequência = pior
-// TRN02: "Trabalho além do horário" → mais frequência = pior
-const INVERTED = new Set(['TRN01', 'TRN02'])
-
-// ─── Mapeamento de domínios ───────────────────────────────────────────────────
-const DOMAINS: Record<string, string[]> = {
-  'Demanda':  ['TRN01'],
-  'Controle': ['TRN02', 'TRN03'],
+// ─── Mapeamento de domínios ─────────────────────────────────────────────────
+const DOMAINS: Record<IetrDomain, string[]> = {
+  Demandas: [],
+  Controle: [],
+  Suporte: [],
+  Comunicação: [],
+  Papel: [],
+  Limites: [],
+  Ambiente: [],
+  Produtividade: [],
 }
 
-// Pesos absolutos — IETR = Σ(media_dominio * peso) / Σ(pesos)
-const WEIGHTS: Record<string, number> = {
-  'Demanda':  2.0,
-  'Controle': 1.5,
+for (const question of IETR_QUESTIONS) {
+  DOMAINS[question.domain].push(question.code)
 }
 
-const TOTAL_WEIGHT = Object.values(WEIGHTS).reduce((s, v) => s + v, 0) // 3.5
+const TOTAL_WEIGHT = Object.values(IETR_DOMAIN_WEIGHTS).reduce((s, v) => s + v, 0)
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 export type RemoteClassification = 'Condição adequada' | 'Zona de atenção' | 'Situação de risco'
@@ -40,15 +47,15 @@ export interface RemoteAnswerResult {
 }
 
 export interface RemoteDomainResult {
-  domain: string
+  domain: IetrDomain
   weight: number
   score: number
   weightedScore: number
 }
 
 export interface RemoteResult {
-  finalScore: number
-  classification: RemoteClassification
+  finalScore: number | null
+  classification: RemoteClassification | null
   domains: RemoteDomainResult[]
   answers: RemoteAnswerResult[]
 }
@@ -62,23 +69,31 @@ function parseValue(raw: string | null): number | null {
 }
 
 function applyTransformation(code: string, value: number): number {
-  return INVERTED.has(code) ? 6 - value : value
+  return IETR_INVERTED_CODES.has(code) ? 6 - value : value
 }
 
 // ─── Motor principal ──────────────────────────────────────────────────────────
 export function calculateRemote(responses: Record<string, string | null>): RemoteResult {
-  // 1. Processar cada resposta
-  const answers: RemoteAnswerResult[] = Object.entries(responses).map(([code, raw]) => {
+  // 1. Processar apenas questões válidas do IETR canônico
+  const answers: RemoteAnswerResult[] = IETR_CODES.map((code) => {
+    const raw = responses[code] ?? null
     const numericValue = parseValue(raw)
     const riskValue = numericValue !== null ? applyTransformation(code, numericValue) : null
     return { questionCode: code, rawValue: raw, numericValue, riskValue }
   })
 
+  // Se nenhuma resposta foi fornecida (usuário pulou o módulo IETR),
+  // retorna sem score para não registrar score=0 incorretamente.
+  const hasAnyAnswer = answers.some((a) => a.numericValue !== null)
+  if (!hasAnyAnswer) {
+    return { finalScore: null, classification: null, domains: [], answers }
+  }
+
   // 2. Calcular score por domínio
   const domains: RemoteDomainResult[] = []
   let weightUsed = 0
 
-  for (const [domain, items] of Object.entries(DOMAINS)) {
+  for (const [domain, items] of Object.entries(DOMAINS) as [IetrDomain, string[]][]) {
     const itemScores = items
       .map((code) => answers.find((a) => a.questionCode === code)?.riskValue)
       .filter((v): v is number => v !== null)
@@ -86,7 +101,7 @@ export function calculateRemote(responses: Record<string, string | null>): Remot
     if (itemScores.length === 0) continue
 
     const mediaDominio = itemScores.reduce((s, v) => s + v, 0) / itemScores.length
-    const weight = WEIGHTS[domain]
+    const weight = IETR_DOMAIN_WEIGHTS[domain]
     const weightedScore = mediaDominio * weight
     weightUsed += weight
 

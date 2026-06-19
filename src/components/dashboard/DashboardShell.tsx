@@ -7,8 +7,11 @@ import OverviewTab from './tabs/OverviewTab'
 import DemographicsTab from './tabs/DemographicsTab'
 import HseTab from './tabs/HseTab'
 import RemoteTab from './tabs/RemoteTab'
+import InsightsTab from './tabs/InsightsTab'
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import ReportRiskModal from './ReportRiskModal'
+import { BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
 
 interface ThemeTokens {
   surface: string
@@ -48,17 +51,14 @@ function FilterDropdown({
         className="flex items-center justify-between gap-2 text-sm px-3 py-1.5 rounded-lg transition-all w-full sm:min-w-[150px]"
         style={{
           backgroundColor: T.surface,
-          border: `1px solid ${open ? '#F5C200' : T.border}`,
+          border: `1px solid ${open ? BRAND_COLORS.primary : T.border}`,
           color: value ? T.text : T.textMuted,
         }}
         onMouseEnter={(e) => { if (!open) e.currentTarget.style.borderColor = T.textMuted }}
         onMouseLeave={(e) => { if (!open) e.currentTarget.style.borderColor = T.border }}
       >
         <span className="truncate max-w-[120px] sm:max-w-[160px]">{value || 'Todos'}</span>
-        <svg
-          width="10" height="10" viewBox="0 0 12 12" fill="currentColor"
-          style={{ opacity: 0.45, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}
-        >
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" style={{ opacity: 0.45, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
           <path d="M6 8L1 3h10z" />
         </svg>
       </button>
@@ -78,13 +78,13 @@ function FilterDropdown({
               key={opt || '__all__'}
               onClick={() => { onChange(opt); setOpen(false) }}
               className="w-full text-left px-4 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
-              style={{ color: opt === value ? '#F5C200' : T.text, fontWeight: opt === value ? 600 : 400 }}
+              style={{ color: opt === value ? BRAND_COLORS.primary : T.text, fontWeight: opt === value ? 600 : 400 }}
               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
             >
               <span className="truncate">{opt || 'Todos'}</span>
               {opt === value && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F5C200" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND_COLORS.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               )}
@@ -101,6 +101,7 @@ const TABS = [
   { id: 'demographics', label: 'Dados Demográficos' },
   { id: 'hse', label: 'HSE por Domínio' },
   { id: 'remote', label: 'Trabalho Remoto' },
+  { id: 'insights', label: '✦ Insights' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -133,23 +134,21 @@ export default function DashboardShell() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
-  // Tokens condicionais
   const T = {
-    bg: isDark ? '#111111' : '#F8F8F8',
-    surface: isDark ? '#1A1A1A' : '#FFFFFF',
-    border: isDark ? '#2A2A2A' : '#E5E5E5',
-    text: isDark ? '#FFFFFF' : '#111111',
-    textMuted: isDark ? '#A3A3A3' : '#737373',
-    textFaint: isDark ? '#525252' : '#A3A3A3',
-    inputBg: isDark ? '#222222' : '#F5F5F5',
-    inputBorder: isDark ? '#2A2A2A' : '#E5E5E5',
-    menuHover: isDark ? '#222222' : '#F5F5F5',
-    clearBtn: isDark ? '#2A2A2A' : '#E5E5E5',
-    clearBtnText: isDark ? '#A3A3A3' : '#737373',
-    adminBorder: isDark ? '#2A2A2A' : '#E5E5E5',
-    adminText: isDark ? '#A3A3A3' : '#737373',
-    menuBg: isDark ? '#1A1A1A' : '#FFFFFF',
-    avatarTextBg: '#F5C200',
+    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
+    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
+    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
+    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
+    inputBg: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
+    inputBorder: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    menuHover: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
+    clearBtn: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
+    clearBtnText: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    adminBorder: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    adminText: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    menuBg: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
   }
 
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -164,6 +163,7 @@ export default function DashboardShell() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [reportMenuOpen, setReportMenuOpen] = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
+  const [reportRiskModalOpen, setReportRiskModalOpen] = useState(false)
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 })
   const menuRef = useRef<HTMLDivElement>(null)
   const reportMenuRef = useRef<HTMLDivElement>(null)
@@ -174,7 +174,6 @@ export default function DashboardShell() {
     if (el) setTabIndicator({ left: el.offsetLeft, width: el.offsetWidth })
   }, [activeTab])
 
-  // Lê o cookie de exibição (não-sensível)
   useEffect(() => {
     const match = document.cookie
       .split('; ')
@@ -186,7 +185,6 @@ export default function DashboardShell() {
     }
   }, [])
 
-  // Bloqueia o dashboard quando a conta está com senha temporária.
   useEffect(() => {
     fetch('/api/auth/manager/me')
       .then(async (res) => {
@@ -194,24 +192,15 @@ export default function DashboardShell() {
         return res.json()
       })
       .then((me) => {
-        if (me.must_change_password) {
-          router.replace('/dashboard/reset-password?first_access=1')
-        }
+        if (me.must_change_password) router.replace('/dashboard/reset-password?first_access=1')
       })
-      .catch(() => {
-        router.replace('/manager/login')
-      })
+      .catch(() => router.replace('/manager/login'))
   }, [router])
 
-  // Fecha menus ao clicar fora
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-      if (reportMenuRef.current && !reportMenuRef.current.contains(e.target as Node)) {
-        setReportMenuOpen(false)
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+      if (reportMenuRef.current && !reportMenuRef.current.contains(e.target as Node)) setReportMenuOpen(false)
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -242,23 +231,22 @@ export default function DashboardShell() {
 
       const doc = new jsPDF()
       const dateStr = new Date().toLocaleDateString('pt-BR')
-      const HEADER_COLOR: [number, number, number] = [245, 194, 0]
-      const TEXT_DARK: [number, number, number] = [17, 17, 17]
+      const headerColor: [number, number, number] = [23, 103, 243]
+      const headerText: [number, number, number] = [255, 255, 255]
+      const bodyText: [number, number, number] = [3, 44, 57]
 
-      // Cabeçalho
-      doc.setFillColor(...HEADER_COLOR)
+      doc.setFillColor(...headerColor)
       doc.rect(0, 0, 210, 18, 'F')
       doc.setFontSize(13)
-      doc.setTextColor(...TEXT_DARK)
+      doc.setTextColor(...headerText)
       doc.setFont('helvetica', 'bold')
-      doc.text('Relatório de Adesão — Instituto Alana', 14, 12)
+      doc.text(`Relatório de Adesão — ${BRAND_NAME}`, 14, 12)
 
       doc.setFontSize(9)
       doc.setFont('helvetica', 'normal')
-      doc.setTextColor(80, 80, 80)
+      doc.setTextColor(100, 116, 136)
       doc.text(`Gerado em ${dateStr}  •  Dados de participação apenas (sem dados de risco)`, 14, 22)
 
-      // Filtros ativos
       let resumoY = 32
       if (data.filters) {
         const filterParts: string[] = []
@@ -269,23 +257,22 @@ export default function DashboardShell() {
         if (data.filters.employment_type) filterParts.push(`Vínculo: ${data.filters.employment_type}`)
         if (filterParts.length > 0) {
           doc.setFontSize(8)
-          doc.setTextColor(120, 80, 0)
+          doc.setTextColor(54, 162, 235)
           doc.text(`Filtros: ${filterParts.join('  •  ')}`, 14, 28)
           resumoY = 38
         }
       }
 
-      // Resumo
       doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
-      doc.setTextColor(...TEXT_DARK)
+      doc.setTextColor(...bodyText)
       doc.text('Resumo Geral', 14, resumoY)
 
       autoTable(doc, {
         startY: resumoY + 4,
         head: [['Total de Colaboradores', 'Responderam', 'Taxa de Adesão']],
         body: [[data.summary.total, data.summary.answered, `${data.summary.pct}%`]],
-        headStyles: { fillColor: HEADER_COLOR, textColor: TEXT_DARK, fontStyle: 'bold', fontSize: 9 },
+        headStyles: { fillColor: headerColor, textColor: headerText, fontStyle: 'bold', fontSize: 9 },
         bodyStyles: { fontSize: 10 },
         margin: { left: 14, right: 14 },
       })
@@ -294,15 +281,15 @@ export default function DashboardShell() {
         const lastY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
         doc.setFontSize(11)
         doc.setFont('helvetica', 'bold')
-        doc.setTextColor(...TEXT_DARK)
+        doc.setTextColor(...bodyText)
         doc.text(title, 14, lastY + 10)
         autoTable(doc, {
           startY: lastY + 14,
           head: [['Categoria', 'Total', 'Responderam', 'Adesão (%)']],
           body: rows.map((r) => [r.name, r.total, r.answered, `${r.pct}%`]),
-          headStyles: { fillColor: HEADER_COLOR, textColor: TEXT_DARK, fontStyle: 'bold', fontSize: 9 },
+          headStyles: { fillColor: headerColor, textColor: headerText, fontStyle: 'bold', fontSize: 9 },
           bodyStyles: { fontSize: 9 },
-          alternateRowStyles: { fillColor: [248, 248, 248] },
+          alternateRowStyles: { fillColor: [248, 250, 251] },
           margin: { left: 14, right: 14 },
         })
       }
@@ -313,19 +300,18 @@ export default function DashboardShell() {
       addSection('Por Gênero', data.by_gender)
       addSection('Por Raça/Cor', data.by_race_color)
 
-      // Linha do tempo
       const lastY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
       doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
-      doc.setTextColor(...TEXT_DARK)
+      doc.setTextColor(...bodyText)
       doc.text('Linha do Tempo de Respostas', 14, lastY + 10)
       autoTable(doc, {
         startY: lastY + 14,
         head: [['Data', 'Respostas no Dia']],
         body: data.responses_by_day.map((r: { date: string; count: number }) => [r.date, r.count]),
-        headStyles: { fillColor: HEADER_COLOR, textColor: TEXT_DARK, fontStyle: 'bold', fontSize: 9 },
+        headStyles: { fillColor: headerColor, textColor: headerText, fontStyle: 'bold', fontSize: 9 },
         bodyStyles: { fontSize: 9 },
-        alternateRowStyles: { fillColor: [248, 248, 248] },
+        alternateRowStyles: { fillColor: [248, 250, 251] },
         margin: { left: 14, right: 14 },
       })
 
@@ -341,6 +327,12 @@ export default function DashboardShell() {
     setReportMenuOpen(false)
     const q = buildQuery()
     window.open('/api/dashboard/report?format=xlsx' + (q ? '&' + q : ''), '_blank')
+  }
+
+  function handleDownloadRiskCSV() {
+    setReportMenuOpen(false)
+    const q = buildQuery()
+    window.open('/api/dashboard/export-risk' + (q ? '?' + q : ''), '_blank')
   }
 
   useEffect(() => {
@@ -370,383 +362,124 @@ export default function DashboardShell() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: T.bg, color: T.text }}>
-      {/* Header */}
       <header className="border-b px-4 sm:px-6 py-3 sm:py-4 flex items-start sm:items-center justify-between gap-3" style={{ borderColor: T.border, backgroundColor: T.surface }}>
         <div className="flex-1 min-w-0">
           <h1 className="text-base sm:text-xl font-semibold tracking-tight leading-snug">Dashboard de Riscos Psicossociais</h1>
-          <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textMuted }}>Instituto Alana</p>
+          <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textMuted }}>{BRAND_NAME}</p>
         </div>
 
-        {/* Desktop controls (hidden on mobile) */}
         <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
           <ThemeToggle />
 
-          {/* Botão Relatório de Adesão */}
           <div className="relative" ref={reportMenuRef}>
             <button
               onClick={() => setReportMenuOpen((v) => !v)}
               disabled={reportLoading}
               className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
               style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText, opacity: reportLoading ? 0.6 : 1 }}
-              onMouseEnter={(e) => { if (!reportLoading) { e.currentTarget.style.color = '#F5C200'; e.currentTarget.style.borderColor = '#F5C200' } }}
+              onMouseEnter={(e) => { if (!reportLoading) { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary } }}
               onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}
             >
-              {reportLoading ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
-                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                  <polyline points="10 9 9 9 8 9" />
-                </svg>
-              )}
               {reportLoading ? 'Gerando...' : 'Relatório'}
             </button>
             {reportMenuOpen && (
-              <div
-                className="absolute right-0 mt-1 w-48 rounded-xl shadow-lg py-1 z-50"
-                style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}
-              >
+              <div className="absolute right-0 mt-1 w-48 rounded-xl shadow-lg py-1 z-50" style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}>
                 <p className="px-4 pt-2 pb-1 text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Exportar Relatório de Adesão</p>
-                <button
-                  onClick={handleDownloadXLSX}
-                  className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors"
-                  style={{ color: T.text }}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="12" y1="18" x2="12" y2="12" />
-                    <line x1="9" y1="15" x2="15" y2="15" />
-                  </svg>
-                  Baixar Excel (.xlsx)
-                </button>
-                <button
-                  onClick={handleDownloadPDF}
-                  className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors"
-                  style={{ color: T.text }}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <rect x="8" y="12" width="8" height="6" />
-                  </svg>
-                  Baixar PDF
-                </button>
+                <button onClick={handleDownloadXLSX} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Baixar Excel (.xlsx)</button>
+                <button onClick={handleDownloadPDF} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Baixar PDF</button>
+                {managerDisplay?.role === 'superuser' && (
+                  <>
+                    <div style={{ margin: '6px 16px', borderTop: `1px solid ${T.border}` }} />
+                    <p className="px-4 pb-1 text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Superuser — Dados de Risco</p>
+                    <button onClick={handleDownloadRiskCSV} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Exportar Riscos (.csv)</button>
+                    <button onClick={() => { setReportMenuOpen(false); setReportRiskModalOpen(true) }} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Relatório de Risco (.pptx)</button>
+                  </>
+                )}
               </div>
             )}
           </div>
-          {activeCount > 0 && (
-            <button
-              onClick={clearFilters}
-              className="text-sm px-3 py-1.5 rounded-md transition-colors"
-              style={{ backgroundColor: T.clearBtn, color: T.clearBtnText }}
-            >
-              Limpar filtros ({activeCount})
-            </button>
-          )}
-          {managerDisplay && (managerDisplay.role === 'superuser' || managerDisplay.role === 'admin') && (
-            <a
-              href="/admin/upload"
-              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
-              style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = '#F5C200'; e.currentTarget.style.borderColor = '#F5C200' }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="12" y1="18" x2="12" y2="12" />
-                <line x1="9" y1="15" x2="15" y2="15" />
-              </svg>
-              Importar CSV
-            </a>
-          )}
-          {managerDisplay && managerDisplay.role === 'superuser' && (
-            <a
-              href="/admin/managers"
-              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
-              style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = '#F5C200'; e.currentTarget.style.borderColor = '#F5C200' }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="8.5" cy="7" r="4" />
-                <line x1="20" y1="8" x2="20" y2="14" />
-                <line x1="23" y1="11" x2="17" y2="11" />
-              </svg>
-              Gestores
-            </a>
-          )}
+
+          {activeCount > 0 && <button onClick={clearFilters} className="text-sm px-3 py-1.5 rounded-md transition-colors" style={{ backgroundColor: T.clearBtn, color: T.clearBtnText }}>Limpar filtros ({activeCount})</button>}
+
+          {managerDisplay && (managerDisplay.role === 'superuser' || managerDisplay.role === 'admin') && <a href="/admin/upload" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Importar CSV</a>}
+          {managerDisplay && managerDisplay.role === 'superuser' && <a href="/admin/managers" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Gestores</a>}
+
           {managerDisplay && (
             <div className="relative" ref={menuRef}>
-              <button
-                onClick={() => setMenuOpen((v) => !v)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
-                style={{ backgroundColor: menuOpen ? T.clearBtn : 'transparent', color: T.text }}
-                onMouseEnter={(e) => { if (!menuOpen) e.currentTarget.style.backgroundColor = T.menuHover }}
-                onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.backgroundColor = 'transparent' }}
-              >
-                <span
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                  style={{ backgroundColor: '#F5C200', color: '#111111' }}
-                >
-                  {managerDisplay.name.charAt(0).toUpperCase() || '?'}
-                </span>
+              <button onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors" style={{ backgroundColor: menuOpen ? T.clearBtn : 'transparent', color: T.text }} onMouseEnter={(e) => { if (!menuOpen) e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.backgroundColor = 'transparent' }}>
+                <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}>{managerDisplay.name.charAt(0).toUpperCase() || '?'}</span>
                 <span className="font-medium">{managerDisplay.name || managerDisplay.email}</span>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style={{ opacity: 0.5 }}>
-                  <path d="M6 8L1 3h10z" />
-                </svg>
               </button>
               {menuOpen && (
-                <div
-                  className="absolute right-0 mt-1 w-56 rounded-xl shadow-lg py-1 z-50"
-                  style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}
-                >
+                <div className="absolute right-0 mt-1 w-56 rounded-xl shadow-lg py-1 z-50" style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}>
                   <div className="px-4 py-3 border-b" style={{ borderColor: T.border }}>
                     <p className="text-sm font-semibold" style={{ color: T.text }}>{managerDisplay.name}</p>
                     <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>{managerDisplay.email}</p>
                   </div>
-                  <button
-                    onClick={handleGoToResetPassword}
-                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors"
-                    style={{ color: T.text }}
-                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }}
-                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                    Redefinir senha
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors"
-                    style={{ color: '#EF4444' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#EF444415' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                      <polyline points="16 17 21 12 16 7" />
-                      <line x1="21" y1="12" x2="9" y2="12" />
-                    </svg>
-                    Sair
-                  </button>
+                  <button onClick={handleGoToResetPassword} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Redefinir senha</button>
+                  <button onClick={handleLogout} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: BRAND_COLORS.danger }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${BRAND_COLORS.danger}15` }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Sair</button>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Mobile controls: ThemeToggle + hamburger (hidden on desktop) */}
         <div className="flex sm:hidden items-center gap-1 flex-shrink-0">
           <ThemeToggle />
-          <button
-            onClick={() => setMobileMenuOpen((v) => !v)}
-            className="p-2 rounded-lg transition-colors"
-            style={{ backgroundColor: mobileMenuOpen ? T.clearBtn : 'transparent', color: T.text }}
-            aria-label="Menu"
-          >
-            {mobileMenuOpen ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            )}
+          <button onClick={() => setMobileMenuOpen((v) => !v)} className="p-2 rounded-lg transition-colors" style={{ backgroundColor: mobileMenuOpen ? T.clearBtn : 'transparent', color: T.text }} aria-label="Menu">
+            {mobileMenuOpen ? '×' : '☰'}
           </button>
         </div>
       </header>
 
-      {/* Mobile menu panel */}
-      {mobileMenuOpen && (
+      {mobileMenuOpen && managerDisplay && (
         <div className="sm:hidden border-b" style={{ backgroundColor: T.surface, borderColor: T.border }}>
-          {managerDisplay && (
-            <>
-              <div className="px-4 py-3 border-b flex items-center gap-3" style={{ borderColor: T.border }}>
-                <span
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                  style={{ backgroundColor: '#F5C200', color: '#111111' }}
-                >
-                  {managerDisplay.name.charAt(0).toUpperCase() || '?'}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate" style={{ color: T.text }}>{managerDisplay.name}</p>
-                  <p className="text-xs truncate" style={{ color: T.textMuted }}>{managerDisplay.email}</p>
-                </div>
-              </div>
-              <div className="px-4 py-2 flex flex-col gap-0.5">
-                {activeCount > 0 && (
-                  <button
-                    onClick={() => { clearFilters(); setMobileMenuOpen(false) }}
-                    className="w-full text-left text-sm px-3 py-2.5 rounded-lg"
-                    style={{ color: T.clearBtnText }}
-                  >
-                    Limpar filtros ({activeCount})
-                  </button>
-                )}
-                <button
-                  onClick={() => { setMobileMenuOpen(false); handleDownloadXLSX() }}
-                  className="w-full text-left flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
-                  style={{ color: T.adminText }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="12" y1="18" x2="12" y2="12" />
-                    <line x1="9" y1="15" x2="15" y2="15" />
-                  </svg>
-                  Relatório Excel
-                </button>
-                <button
-                  onClick={() => { setMobileMenuOpen(false); handleDownloadPDF() }}
-                  disabled={reportLoading}
-                  className="w-full text-left flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
-                  style={{ color: T.adminText, opacity: reportLoading ? 0.6 : 1 }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <rect x="8" y="12" width="8" height="6" />
-                  </svg>
-                  {reportLoading ? 'Gerando PDF...' : 'Relatório PDF'}
-                </button>
-                {(managerDisplay.role === 'superuser' || managerDisplay.role === 'admin') && (
-                  <a
-                    href="/admin/upload"
-                    className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
-                    style={{ color: T.adminText }}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                      <line x1="12" y1="18" x2="12" y2="12" />
-                      <line x1="9" y1="15" x2="15" y2="15" />
-                    </svg>
-                    Importar CSV
-                  </a>
-                )}
-                {managerDisplay.role === 'superuser' && (
-                  <a
-                    href="/admin/managers"
-                    className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
-                    style={{ color: T.adminText }}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                      <circle cx="8.5" cy="7" r="4" />
-                      <line x1="20" y1="8" x2="20" y2="14" />
-                      <line x1="23" y1="11" x2="17" y2="11" />
-                    </svg>
-                    Gestores
-                  </a>
-                )}
-                <button
-                  onClick={handleGoToResetPassword}
-                  className="w-full text-left flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
-                  style={{ color: T.textMuted }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  Redefinir senha
-                </button>
-                <button
-                  onClick={() => { setMobileMenuOpen(false); handleLogout() }}
-                  className="w-full text-left flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg"
-                  style={{ color: '#EF4444' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                  Sair
-                </button>
-              </div>
-            </>
-          )}
+          <div className="px-4 py-3 border-b flex items-center gap-3" style={{ borderColor: T.border }}>
+            <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0" style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}>{managerDisplay.name.charAt(0).toUpperCase() || '?'}</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: T.text }}>{managerDisplay.name}</p>
+              <p className="text-xs truncate" style={{ color: T.textMuted }}>{managerDisplay.email}</p>
+            </div>
+          </div>
+          <div className="px-4 py-2 flex flex-col gap-0.5">
+            {activeCount > 0 && <button onClick={() => { clearFilters(); setMobileMenuOpen(false) }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.clearBtnText }}>Limpar filtros ({activeCount})</button>}
+            <button onClick={() => { setMobileMenuOpen(false); handleDownloadXLSX() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }}>Relatório Excel</button>
+            <button onClick={() => { setMobileMenuOpen(false); handleDownloadPDF() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }}>{reportLoading ? 'Gerando PDF...' : 'Relatório PDF'}</button>
+            {(managerDisplay.role === 'superuser' || managerDisplay.role === 'admin') && <a href="/admin/upload" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Importar CSV</a>}
+            {managerDisplay.role === 'superuser' && <a href="/admin/managers" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Gestores</a>}
+            <button onClick={handleGoToResetPassword} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.textMuted }}>Redefinir senha</button>
+            <button onClick={() => { setMobileMenuOpen(false); handleLogout() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: BRAND_COLORS.danger }}>Sair</button>
+          </div>
         </div>
       )}
 
-      {/* Filtros */}
       <div className="px-4 sm:px-6 py-3 flex flex-wrap gap-3 border-b" style={{ borderColor: T.border, backgroundColor: T.surface }}>
         {(['area', 'role', 'employment_type', 'gender', 'race_color'] as const).map((key) => {
-          const LABELS: Record<string, string> = { area: 'Área', role: 'Cargo', employment_type: 'Vínculo', gender: 'Gênero', race_color: 'Raça/Cor' }
-          return (
-            <FilterDropdown
-              key={key}
-              label={LABELS[key]}
-              value={filters[key]}
-              options={filterOptions[key]}
-              onChange={(v) => handleFilter(key, v)}
-              T={T}
-            />
-          )
+          const labels: Record<string, string> = { area: 'Área', role: 'Cargo', employment_type: 'Vínculo', gender: 'Gênero', race_color: 'Raça/Cor' }
+          return <FilterDropdown key={key} label={labels[key]} value={filters[key]} options={filterOptions[key]} onChange={(v) => handleFilter(key, v)} T={T} />
         })}
       </div>
 
-      {/* Abas */}
       <div className="px-4 sm:px-6 pt-4 border-b overflow-x-auto" style={{ borderColor: T.border }}>
         <div className="relative flex gap-1 min-w-max">
-          {/* Indicador deslizante */}
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: tabIndicator.left,
-              width: tabIndicator.width,
-              height: '100%',
-              backgroundColor: '#F5C200',
-              borderRadius: '6px 6px 0 0',
-              transition: 'left 0.22s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1)',
-              zIndex: 0,
-            }}
-          />
+          <div aria-hidden style={{ position: 'absolute', bottom: 0, left: tabIndicator.left, width: tabIndicator.width, height: '100%', backgroundColor: BRAND_COLORS.primary, borderRadius: '6px 6px 0 0', transition: 'left 0.22s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1)', zIndex: 0 }} />
           {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              ref={(el) => { tabRefs.current[tab.id] = el }}
-              onClick={() => setActiveTab(tab.id)}
-              className="relative px-4 py-2 text-sm font-medium rounded-t-md whitespace-nowrap flex-shrink-0 transition-colors"
-              style={{
-                color: activeTab === tab.id ? '#111111' : T.textMuted,
-                backgroundColor: 'transparent',
-                zIndex: 1,
-              }}
-              onMouseEnter={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.text }}
-              onMouseLeave={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.textMuted }}
-            >
+            <button key={tab.id} ref={(el) => { tabRefs.current[tab.id] = el }} onClick={() => setActiveTab(tab.id)} className="relative px-4 py-2 text-sm font-medium rounded-t-md whitespace-nowrap flex-shrink-0 transition-colors" style={{ color: activeTab === tab.id ? '#FFFFFF' : T.textMuted, backgroundColor: 'transparent', zIndex: 1 }} onMouseEnter={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.text }} onMouseLeave={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.textMuted }}>
               {tab.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Conteúdo das abas */}
       <main className="p-4 sm:p-6 max-w-full overflow-x-hidden">
         {activeTab === 'overview' && <OverviewTab query={buildQuery()} />}
         {activeTab === 'demographics' && <DemographicsTab query={buildQuery()} />}
         {activeTab === 'hse' && <HseTab query={buildQuery()} />}
         {activeTab === 'remote' && <RemoteTab query={buildQuery()} />}
+        {activeTab === 'insights' && <InsightsTab query={buildQuery()} isSuperuser={managerDisplay?.role === 'superuser'} />}
       </main>
+
+      {reportRiskModalOpen && <ReportRiskModal filters={filters} theme={T} isDark={isDark} onClose={() => setReportRiskModalOpen(false)} />}
     </div>
   )
 }

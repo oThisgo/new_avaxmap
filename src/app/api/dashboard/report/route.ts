@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
       : []
 
     const wsSummary = XLSX.utils.aoa_to_sheet([
-      ['Relatório de Adesão — Instituto Alana'],
+      ['Relatório de Adesão — BeeTouch'],
       ['Gerado em:', dateStr],
       ...filterRows,
       [],

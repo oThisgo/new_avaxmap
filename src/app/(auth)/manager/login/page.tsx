@@ -1,29 +1,34 @@
 'use client'
 
-import { useState, FormEvent } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
+
+interface SubmitLikeEvent {
+  preventDefault: () => void
+}
 
 export default function ManagerLoginPage() {
   const router = useRouter()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const T = {
-    bg: isDark ? '#111111' : '#F8F8F8',
-    surface: isDark ? '#1A1A1A' : '#FFFFFF',
-    border: isDark ? '#2A2A2A' : '#E5E5E5',
-    text: isDark ? '#FFFFFF' : '#111111',
-    textMuted: isDark ? '#A3A3A3' : '#737373',
-    inputBg: isDark ? '#111111' : '#F5F5F5',
+    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
+    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
+    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
+    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    inputBg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightSurface2,
   }
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: SubmitLikeEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
@@ -69,12 +74,12 @@ export default function ManagerLoginPage() {
         {/* Logo */}
         <div className="flex justify-center mb-10">
           <div
-            className="w-26 h-26 rounded-full flex items-center justify-center overflow-hidden"
-            style={{ backgroundColor: '#F5C200' }}
+            className="w-26 h-26 rounded-full flex items-center justify-center overflow-hidden p-4"
+            style={{ backgroundColor: BRAND_COLORS.primary }}
           >
             <Image
-              src="/logo-alana.png"
-              alt="Instituto Alana"
+              src={BRAND_ASSETS.symbol}
+              alt={BRAND_NAME}
               width={96}
               height={96}
               className="object-contain"
@@ -104,10 +109,10 @@ export default function ManagerLoginPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="gestor@institutoalana.org.br"
+                placeholder="gestor@beetouch.ai"
                 className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
                 style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = '#F5C200')}
+                onFocus={(e) => (e.currentTarget.style.borderColor = BRAND_COLORS.primary)}
                 onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
                 disabled={loading}
               />
@@ -126,7 +131,7 @@ export default function ManagerLoginPage() {
                 placeholder="••••••••"
                 className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
                 style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = '#F5C200')}
+                onFocus={(e) => (e.currentTarget.style.borderColor = BRAND_COLORS.primary)}
                 onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
                 disabled={loading}
               />
@@ -142,9 +147,9 @@ export default function ManagerLoginPage() {
               type="submit"
               disabled={loading}
               className="w-full rounded-lg py-3 text-sm font-semibold transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ backgroundColor: '#F5C200', color: '#111111' }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = '#D4A800' }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#F5C200' }}
+              style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
+              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
             >
               {loading ? 'Entrando...' : 'Entrar →'}
             </button>
@@ -152,21 +157,8 @@ export default function ManagerLoginPage() {
         </div>
 
         <p className="text-center text-xs mt-6" style={{ color: isDark ? '#525252' : '#A3A3A3' }}>
-          Instituto Alana — Plataforma de Mapeamento de Riscos Psicossociais
+          {BRAND_NAME} — Plataforma de Mapeamento de Riscos Psicossociais
         </p>
-      </div>
-
-      {/* Logo FIA */}
-      <div style={{ position: 'fixed', bottom: '20px', left: '20px' }}>
-        <Image
-          src="/logo-fia.png"
-          alt="FIA Business School"
-          width={140}
-          height={60}
-          className="object-contain"
-          style={{ height: 'auto', opacity: isDark ? 0.7 : 1 }}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-        />
       </div>
     </div>
   )

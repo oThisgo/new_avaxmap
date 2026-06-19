@@ -1,8 +1,13 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/components/ThemeProvider'
+import { BRAND_COLORS } from '@/lib/brand'
+
+interface SubmitLikeEvent {
+  preventDefault: () => void
+}
 
 export default function ResetManagerPasswordPage() {
   const router = useRouter()
@@ -11,12 +16,12 @@ export default function ResetManagerPasswordPage() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const T = {
-    bg: isDark ? '#111111' : '#F8F8F8',
-    surface: isDark ? '#1A1A1A' : '#FFFFFF',
-    border: isDark ? '#2A2A2A' : '#E5E5E5',
-    text: isDark ? '#FFFFFF' : '#111111',
-    textMuted: isDark ? '#A3A3A3' : '#737373',
-    inputBg: isDark ? '#111111' : '#F5F5F5',
+    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
+    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
+    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
+    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    inputBg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightSurface2,
   }
 
   const [currentPassword, setCurrentPassword] = useState('')
@@ -46,7 +51,7 @@ export default function ResetManagerPasswordPage() {
       })
   }, [router])
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: SubmitLikeEvent) {
     e.preventDefault()
     setError('')
     setSuccess('')
@@ -162,7 +167,7 @@ export default function ResetManagerPasswordPage() {
             type="submit"
             disabled={loading}
             className="w-full rounded-lg py-3 text-sm font-semibold transition-colors disabled:opacity-50"
-            style={{ backgroundColor: '#F5C200', color: '#111111' }}
+            style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
           >
             {loading ? 'Salvando...' : 'Salvar nova senha'}
           </button>

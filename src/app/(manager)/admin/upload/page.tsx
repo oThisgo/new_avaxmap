@@ -4,6 +4,7 @@ import { useState, useRef, DragEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { BRAND_COLORS } from '@/lib/brand'
 
 interface UploadResult {
   ok: boolean
@@ -18,13 +19,13 @@ export default function UploadCollaboratorsPage() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const T = {
-    bg: isDark ? '#111111' : '#F8F8F8',
-    surface: isDark ? '#1A1A1A' : '#FFFFFF',
-    surface2: isDark ? '#222222' : '#F5F5F5',
-    border: isDark ? '#2A2A2A' : '#E5E5E5',
-    text: isDark ? '#FFFFFF' : '#111111',
-    textMuted: isDark ? '#A3A3A3' : '#737373',
-    textFaint: isDark ? '#525252' : '#A3A3A3',
+    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
+    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
+    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
+    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
+    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
+    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
+    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
   }
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
@@ -122,7 +123,7 @@ export default function UploadCollaboratorsPage() {
           className="rounded-xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors"
           style={{
             backgroundColor: dragging ? T.surface2 : T.surface,
-            border: `2px dashed ${dragging ? '#F5C200' : file ? '#22C55E' : T.border}`,
+            border: `2px dashed ${dragging ? BRAND_COLORS.primary : file ? BRAND_COLORS.success : T.border}`,
           }}
         >
           <input
@@ -132,7 +133,7 @@ export default function UploadCollaboratorsPage() {
             className="hidden"
             onChange={handleFileChange}
           />
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={file ? '#22C55E' : '#525252'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={file ? BRAND_COLORS.success : T.textFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="12" y1="18" x2="12" y2="12" />
@@ -180,9 +181,9 @@ export default function UploadCollaboratorsPage() {
           onClick={handleUpload}
           disabled={!file || loading}
           className="mt-6 w-full rounded-lg py-3 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: '#F5C200', color: '#111111' }}
-          onMouseEnter={(e) => { if (file && !loading) e.currentTarget.style.backgroundColor = '#D4A800' }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#F5C200' }}
+          style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
+          onMouseEnter={(e) => { if (file && !loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
         >
           {loading ? 'Importando...' : 'Importar colaboradores'}
         </button>
@@ -201,8 +202,8 @@ export default function UploadCollaboratorsPage() {
             <div className="grid grid-cols-3 gap-3 mb-4">
               {[
                 { label: 'Total processado', value: result.total, color: T.text },
-                { label: 'Novos inseridos', value: result.inserted, color: '#22C55E' },
-                { label: 'Atualizados', value: result.updated, color: '#F5C200' },
+                { label: 'Novos inseridos', value: result.inserted, color: BRAND_COLORS.success },
+                { label: 'Atualizados', value: result.updated, color: BRAND_COLORS.primary },
               ].map((s) => (
                 <div key={s.label} className="rounded-lg p-3 text-center" style={{ backgroundColor: T.surface2 }}>
                   <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
@@ -212,7 +213,7 @@ export default function UploadCollaboratorsPage() {
             </div>
             {result.parse_errors.length > 0 && (
               <div>
-                <p className="text-xs font-semibold mb-1" style={{ color: '#F5C200' }}>
+                <p className="text-xs font-semibold mb-1" style={{ color: BRAND_COLORS.primary }}>
                   {result.parse_errors.length} linha(s) ignoradas por CPF inválido:
                 </p>
                 <ul className="text-xs space-y-0.5" style={{ color: '#A3A3A3' }}>

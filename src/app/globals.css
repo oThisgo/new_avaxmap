@@ -4,13 +4,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─── Identidade visual Instituto Alana ─────────────────────────────────────
-   Paleta extraída do formulário Tally:
-   - Fundo escuro predominante: #111111
-   - Amarelo Alana (logo + botões): #F5C200
-   - Texto principal: #FFFFFF
-   - Superfície de card: #1A1A1A
-   - Borda sutil: #2A2A2A
+/* ─── Identidade visual BeeTouch ────────────────────────────────────────────
+  Paleta principal da aplicação:
+   - Fundo escuro predominante: #032C39
+   - Azul principal da marca: #1767F3
+   - Azul secundário: #36A2EB
+   - Superfície de card: #062F47
+   - Borda sutil: #1A4866
    ─────────────────────────────────────────────────────────────────────────── */
 
 @theme inline {
@@ -18,9 +18,9 @@
   --font-mono: var(--font-geist-mono);
 
   /* Cores da marca */
-  --color-brand: #F5C200;
-  --color-brand-hover: #D4A800;
-  --color-brand-foreground: #111111;
+  --color-brand: #1767F3;
+  --color-brand-hover: #0E58D8;
+  --color-brand-foreground: #FFFFFF;
 
   /* Superfícies */
   --color-surface-base: #111111;
@@ -29,17 +29,17 @@
 
   /* Bordas */
   --color-border: #2A2A2A;
-  --color-border-focus: #F5C200;
+  --color-border-focus: #36A2EB;
 
   /* Texto */
   --color-text-primary: #FFFFFF;
   --color-text-secondary: #A3A3A3;
-  --color-text-muted: #525252;
+  --color-text-muted: #737373;
 
   /* Estado */
-  --color-success: #22C55E;
-  --color-warning: #F59E0B;
-  --color-danger: #EF4444;
+  --color-success: #6CAF5D;
+  --color-warning: #F7B955;
+  --color-danger: #F73538;
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);

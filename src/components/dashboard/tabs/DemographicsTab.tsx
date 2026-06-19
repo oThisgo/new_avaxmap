@@ -6,8 +6,9 @@ import {
   PieChart, Pie, Legend,
 } from 'recharts'
 import { useTheme } from '@/components/ThemeProvider'
+import { BRAND_COLORS } from '@/lib/brand'
 
-const PALETTE = ['#F5C200', '#22C55E', '#3B82F6', '#8B5CF6', '#EF4444', '#F97316', '#06B6D4', '#EC4899']
+const PALETTE = [BRAND_COLORS.primary, BRAND_COLORS.secondary, '#5F82F6', BRAND_COLORS.mint, BRAND_COLORS.peach, BRAND_COLORS.pink, BRAND_COLORS.lilac, BRAND_COLORS.slate]
 
 interface DistItem { name: string; value: number }
 interface DemoData {
