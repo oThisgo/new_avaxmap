@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 
 function buildFilters(params: URLSearchParams) {
   const filters: Record<string, string> = {}
@@ -14,6 +15,11 @@ export async function GET(request: NextRequest) {
   const session = request.cookies.get('manager_session')?.value
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
+
   const supabase = createServerClient()
   const filters = buildFilters(request.nextUrl.searchParams)
 
@@ -21,6 +27,7 @@ export async function GET(request: NextRequest) {
   let collabQuery = supabase
     .from('collaborators')
     .select('id, area, role, employment_type')
+    .eq('mapping_id', mappingScope.mappingId)
   for (const [k, v] of Object.entries(filters)) {
     collabQuery = collabQuery.eq(k, v)
   }
@@ -35,6 +42,7 @@ export async function GET(request: NextRequest) {
   let answeredQuery = supabase
     .from('collaborators')
     .select('id, area, role, employment_type')
+    .eq('mapping_id', mappingScope.mappingId)
     .eq('has_answered', true)
   for (const [k, v] of Object.entries(filters)) {
     answeredQuery = answeredQuery.eq(k, v)

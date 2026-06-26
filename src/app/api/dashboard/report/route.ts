@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 
 interface CollabRow {
   id: string
@@ -44,6 +45,11 @@ export async function GET(request: NextRequest) {
   const session = request.cookies.get('manager_session')?.value
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
+
   const format = request.nextUrl.searchParams.get('format') ?? 'json'
   const area = request.nextUrl.searchParams.get('area') ?? ''
   const role = request.nextUrl.searchParams.get('role') ?? ''
@@ -56,6 +62,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('collaborators')
     .select('id, area, role, employment_type, gender, race_color, has_answered')
+    .eq('mapping_id', mappingScope.mappingId)
 
   if (area) query = query.eq('area', area)
   if (role) query = query.eq('role', role)
@@ -72,10 +79,15 @@ export async function GET(request: NextRequest) {
   const answered = collabs.filter((c) => c.has_answered).length
   const pct = total > 0 ? Math.round((answered / total) * 10000) / 100 : 0
 
-  const { data: responses } = await supabase
-    .from('responses')
-    .select('submitted_at')
-    .order('submitted_at', { ascending: true })
+  const collaboratorIds = collabs.map((c) => c.id)
+
+  const { data: responses } = collaboratorIds.length > 0
+    ? await supabase
+        .from('responses')
+        .select('submitted_at')
+        .in('collaborator_id', collaboratorIds)
+        .order('submitted_at', { ascending: true })
+    : { data: [] }
 
   const byDayMap: Record<string, number> = {}
   for (const r of responses ?? []) {

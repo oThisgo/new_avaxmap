@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession, isSuperuser } from '@/lib/auth/manager'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
 import { buildRiskReport, ReportPayload, StratumRow, IetrStratumRow } from '@/lib/reports/risk-pptx'
 
@@ -341,11 +342,16 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServerClient()
+  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
 
   // 1. Fetch collaborators
   let collabQuery = supabase
     .from('collaborators')
     .select('id, area, role, gender, race_color, employment_type, birth_date, education_level, marital_status, disability, which_disability, has_answered')
+    .eq('mapping_id', mappingScope.mappingId)
   for (const [k, v] of Object.entries(filters)) {
     collabQuery = collabQuery.eq(k, v)
   }

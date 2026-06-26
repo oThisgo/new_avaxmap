@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 
 function buildFilters(params: URLSearchParams) {
   const filters: Record<string, string> = {}
@@ -45,12 +46,18 @@ export async function GET(request: NextRequest) {
   const session = request.cookies.get('manager_session')?.value
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
+
   const supabase = createServerClient()
   const filters = buildFilters(request.nextUrl.searchParams)
 
   let query = supabase
     .from('collaborators')
     .select('birth_date, gender, race_color, education_level, marital_status, disability, which_disability')
+    .eq('mapping_id', mappingScope.mappingId)
     .eq('has_answered', true)
   for (const [k, v] of Object.entries(filters)) {
     query = query.eq(k, v)

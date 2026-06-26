@@ -379,7 +379,11 @@ function chunkBy<T>(items: readonly T[], chunkSize: number): T[][] {
   return chunks
 }
 
-export function IetrForm() {
+interface IetrFormProps {
+  thankYouPath?: string
+}
+
+export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormProps>) {
   const router = useRouter()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
@@ -554,7 +558,7 @@ export function IetrForm() {
         return
       }
 
-      router.push('/agradecimento')
+      router.push(thankYouPath)
     } catch {
       setError('Erro de conexão. Tente novamente em instantes.')
     } finally {

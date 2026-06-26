@@ -1,10 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession, isAdmin } from '@/lib/auth/manager'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 import { hashCpf, encryptFieldOrNull } from '@/lib/security/crypto'
 
-// ─── CSV parser mínimo com suporte a campos com ponto-e-vírgula entre aspas ─
-function parseCsvRow(row: string): string[] {
+type MappingConfig = {
+  credential_column?: string | null
+  column_mapping?: Record<string, string>
+  stratification_columns?: string[]
+}
+
+function normalizeLabel(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function detectDelimiter(headerLine: string): string {
+  const delimiters = [';', ',', '\t', '|']
+  let best = ';'
+  let bestCount = -1
+  for (const delimiter of delimiters) {
+    const count = headerLine.split(delimiter).length
+    if (count > bestCount) {
+      bestCount = count
+      best = delimiter
+    }
+  }
+  return best
+}
+
+function parseCsvRow(row: string, delimiter: string): string[] {
   const result: string[] = []
   let current = ''
   let inQuotes = false
@@ -13,7 +43,7 @@ function parseCsvRow(row: string): string[] {
     if (ch === '"') {
       if (inQuotes && row[i + 1] === '"') { current += '"'; i++ }
       else inQuotes = !inQuotes
-    } else if (ch === ';' && !inQuotes) {
+    } else if (ch === delimiter && !inQuotes) {
       result.push(current.trim())
       current = ''
     } else {
@@ -28,20 +58,37 @@ function normalizeCpf(raw: string): string {
   return raw.replace(/[.\-\s]/g, '').trim()
 }
 
-// Colunas do CSV (0-indexed, separador: ponto-e-vírgula):
-// 0: Nome completo → name
-// 1: CPF → cpf
-// 2: Data de nascimento → birth_date
-// 3: E-mail → email
-// 4: Variável de estratificação 1 (área) → area
-// 5: Variável de estratificação 2 (cargo) → role
-// 6: Variável de estratificação 3 (gênero) → gender
-// 7: Variável de estratificação 4 (raça) → race_color
-// 8: Variável de estratificação 5 (idade) → IGNORADO
-// 9: Vínculo → employment_type
-// 10: Escolaridade → education_level (criptografado)
-// 11: Estado Civil → marital_status (criptografado)
-// 12: Deficiência → disability + which_disability (lógica abaixo)
+function isCpfLikeLabel(label: string): boolean {
+  return /cpf|documento|tax id/.test(normalizeLabel(label))
+}
+
+function normalizeCredential(value: string, cpfLike: boolean): string {
+  return cpfLike ? normalizeCpf(value) : value.trim().toLowerCase()
+}
+
+function pickMappedColumn(
+  headers: string[],
+  config: MappingConfig,
+  key: string,
+  patterns: RegExp[],
+): string | null {
+  const explicit = config.column_mapping?.[key]
+  if (explicit && headers.includes(explicit)) return explicit
+
+  for (const header of headers) {
+    const n = normalizeLabel(header)
+    if (patterns.some((pattern) => pattern.test(n))) return header
+  }
+
+  return null
+}
+
+function readValue(rowValues: string[], indexes: Map<string, number>, column: string | null): string {
+  if (!column) return ''
+  const idx = indexes.get(column)
+  if (idx == null) return ''
+  return (rowValues[idx] ?? '').trim()
+}
 
 export async function POST(request: NextRequest) {
   const sessionToken = request.cookies.get('manager_session')?.value
@@ -66,16 +113,103 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nenhum arquivo enviado.' }, { status: 400 })
   }
 
+  const mappingScope = await getMappingScopeContext(request)
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
+
+  let mappingId = mappingScope.mappingId
+  const mappingSlugFromBody = formData.get('mapping_slug')
+  const mappingSlug =
+    typeof mappingSlugFromBody === 'string' && mappingSlugFromBody.trim().length > 0
+      ? mappingSlugFromBody.trim().toLowerCase()
+      : null
+
+  const supabase = createServerClient()
+
+  if (!mappingId && mappingSlug) {
+    const { data: mapping, error: mappingError } = await supabase
+      .from('mappings')
+      .select('id, status, config')
+      .eq('slug', mappingSlug)
+      .single()
+
+    if (mappingError || !mapping || mapping.status !== 'active') {
+      return NextResponse.json({ error: 'Mapeamento inválido para importação.' }, { status: 404 })
+    }
+
+    mappingId = mapping.id
+  }
+
+  if (!mappingId) {
+    return NextResponse.json(
+      { error: 'Informe um mapeamento para importar colaboradores.' },
+      { status: 400 },
+    )
+  }
+
+  const { data: mappingConfigResult } = await supabase
+    .from('mappings')
+    .select('config')
+    .eq('id', mappingId)
+    .single()
+
+  const mappingConfig = (mappingConfigResult?.config ?? {}) as MappingConfig
+
   const text = await file.text()
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
   if (lines.length < 2) {
     return NextResponse.json({ error: 'CSV vazio ou sem linhas de dados.' }, { status: 400 })
   }
 
+  const headerLine = lines[0]
+  const delimiter = detectDelimiter(headerLine)
+  const headers = parseCsvRow(headerLine, delimiter)
+  const headerIndexes = new Map(headers.map((header, index) => [header, index]))
+
+  const credentialColumn =
+    typeof mappingConfig.credential_column === 'string' && headers.includes(mappingConfig.credential_column)
+      ? mappingConfig.credential_column
+      : pickMappedColumn(headers, mappingConfig, 'cpf', [/^cpf$/, /documento/])
+        ?? pickMappedColumn(headers, mappingConfig, 'employee_code', [/matricula/, /codigo/, /registro/, /employee id/])
+        ?? pickMappedColumn(headers, mappingConfig, 'email', [/^e-?mail$/, /email/, /mail/])
+
+  if (!credentialColumn) {
+    return NextResponse.json(
+      { error: 'Não foi possível identificar a coluna de credencial no CSV.' },
+      { status: 400 },
+    )
+  }
+
+  const fullNameColumn = pickMappedColumn(headers, mappingConfig, 'full_name', [/^nome$/, /nome.*completo/, /colaborador/, /funcionario/, /employee.*name/])
+  const emailColumn = pickMappedColumn(headers, mappingConfig, 'email', [/^e-?mail$/, /email/, /mail/])
+  const birthDateColumn = pickMappedColumn(headers, mappingConfig, 'birth_date', [/nascimento/, /data.*nasc/, /birth/, /dob/])
+  const genderColumn = pickMappedColumn(headers, mappingConfig, 'gender', [/genero/, /sexo/, /gender/])
+  const raceColorColumn = pickMappedColumn(headers, mappingConfig, 'race_color', [/raca/, /etnia/, /cor/, /ethnic/])
+  const educationColumn = pickMappedColumn(headers, mappingConfig, 'education_level', [/escolaridade/, /formacao/, /education/])
+  const maritalStatusColumn = pickMappedColumn(headers, mappingConfig, 'marital_status', [/estado civil/, /marital/])
+  const disabilityColumn = pickMappedColumn(headers, mappingConfig, 'disability', [/deficiencia$/, /pcd/, /disability$/])
+  const disabilityTypeColumn = pickMappedColumn(headers, mappingConfig, 'disability_type', [/tipo.*deficiencia/, /qual.*deficiencia/, /disability.*type/])
+
+  const stratifications = Array.isArray(mappingConfig.stratification_columns)
+    ? mappingConfig.stratification_columns.filter((column) => headers.includes(column))
+    : []
+
+  const areaColumn = pickMappedColumn(headers, mappingConfig, 'area', [/^area$/, /setor/, /departamento/, /unidade/, /regional/])
+    ?? stratifications.find((column) => /area|setor|departamento|unidade|regional/.test(normalizeLabel(column)))
+    ?? null
+  const roleColumn = pickMappedColumn(headers, mappingConfig, 'role', [/cargo/, /funcao/, /posição/, /posicao/, /role/])
+    ?? stratifications.find((column) => /cargo|funcao|posicao|role/.test(normalizeLabel(column)))
+    ?? null
+  const employmentTypeColumn = pickMappedColumn(headers, mappingConfig, 'employment_type', [/vinculo/, /tipo.*contrato/, /regime/, /employment type/])
+    ?? stratifications.find((column) => /vinculo|contrato|regime/.test(normalizeLabel(column)))
+    ?? null
+
   // Pula o header
   const dataLines = lines.slice(1)
 
   type CollaboratorRow = {
+    mapping_id: string
     cpf: string
     name: string
     email: string | null
@@ -93,32 +227,39 @@ export async function POST(request: NextRequest) {
 
   const rows: CollaboratorRow[] = []
   const parseErrors: string[] = []
+  const credentialIsCpf = isCpfLikeLabel(credentialColumn)
 
   for (let i = 0; i < dataLines.length; i++) {
-    const cols = parseCsvRow(dataLines[i])
-    const rawCpf = cols[1] ?? ''
-    const cpf = normalizeCpf(rawCpf)
+    const cols = parseCsvRow(dataLines[i], delimiter)
+    const rawCredential = readValue(cols, headerIndexes, credentialColumn)
+    const normalizedCredential = normalizeCredential(rawCredential, credentialIsCpf)
 
-    if (!cpf || !/^\d{11}$/.test(cpf)) {
-      parseErrors.push(`Linha ${i + 2}: CPF inválido ("${rawCpf}")`)
+    if (!normalizedCredential) {
+      parseErrors.push(`Linha ${i + 2}: credencial vazia (coluna "${credentialColumn}")`)
       continue
     }
 
-    const disabilityCol = (cols[12] ?? '').trim()
+    if (credentialIsCpf && !/^\d{11}$/.test(normalizedCredential)) {
+      parseErrors.push(`Linha ${i + 2}: CPF inválido ("${rawCredential}")`)
+      continue
+    }
+
+    const disabilityCol = readValue(cols, headerIndexes, disabilityTypeColumn ?? disabilityColumn)
     const hasDisability = disabilityCol.toLowerCase() !== 'sem deficiência' && disabilityCol !== ''
 
     rows.push({
-      cpf: hashCpf(cpf),
-      name: encryptFieldOrNull(cols[0]) ?? '',
-      email: encryptFieldOrNull(cols[3] ?? null),
-      birth_date: encryptFieldOrNull(cols[2] ?? null),
-      area: cols[4] || null,
-      role: cols[5] || null,
-      gender: cols[6] || null,
-      race_color: cols[7] || null,
-      employment_type: cols[9] || null,
-      education_level: encryptFieldOrNull(cols[10] ?? null),
-      marital_status: encryptFieldOrNull(cols[11] ?? null),
+      mapping_id: mappingId,
+      cpf: hashCpf(normalizedCredential),
+      name: encryptFieldOrNull(readValue(cols, headerIndexes, fullNameColumn)) ?? '',
+      email: encryptFieldOrNull(readValue(cols, headerIndexes, emailColumn)),
+      birth_date: encryptFieldOrNull(readValue(cols, headerIndexes, birthDateColumn)),
+      area: readValue(cols, headerIndexes, areaColumn) || null,
+      role: readValue(cols, headerIndexes, roleColumn) || null,
+      gender: readValue(cols, headerIndexes, genderColumn) || null,
+      race_color: readValue(cols, headerIndexes, raceColorColumn) || null,
+      employment_type: readValue(cols, headerIndexes, employmentTypeColumn) || null,
+      education_level: encryptFieldOrNull(readValue(cols, headerIndexes, educationColumn)),
+      marital_status: encryptFieldOrNull(readValue(cols, headerIndexes, maritalStatusColumn)),
       disability: encryptFieldOrNull(hasDisability ? 'sim' : 'não'),
       which_disability: hasDisability ? disabilityCol : null,
     })
@@ -128,13 +269,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nenhuma linha válida encontrada.', parse_errors: parseErrors }, { status: 400 })
   }
 
-  const supabase = createServerClient()
-
   // CPFs já estão hasheados em rows; busca para diferenciar insert de update
   const incomingHashedCpfs = rows.map((r) => r.cpf)
   const { data: existing } = await supabase
     .from('collaborators')
     .select('cpf')
+    .eq('mapping_id', mappingId)
     .in('cpf', incomingHashedCpfs)
 
   const existingCpfSet = new Set((existing ?? []).map((e) => e.cpf))
@@ -143,7 +283,7 @@ export async function POST(request: NextRequest) {
   // NÃO toca em: has_answered
   const { error: upsertError } = await supabase
     .from('collaborators')
-    .upsert(rows, { onConflict: 'cpf', ignoreDuplicates: false })
+    .upsert(rows, { onConflict: 'mapping_id,cpf', ignoreDuplicates: false })
 
   if (upsertError) {
     return NextResponse.json({ error: `Erro no banco: ${upsertError.message}` }, { status: 500 })

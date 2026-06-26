@@ -12,6 +12,7 @@ interface SubmitLikeEvent {
 export default function ResetManagerPasswordPage() {
   const router = useRouter()
   const [firstAccess, setFirstAccess] = useState(false)
+  const [nextPath, setNextPath] = useState('/dashboard/client')
 
   const { theme } = useTheme()
   const isDark = theme === 'dark'
@@ -34,7 +35,11 @@ export default function ResetManagerPasswordPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const isFirstAccess = params.get('first_access') === '1'
+    const next = params.get('next')
     setFirstAccess(isFirstAccess)
+    if (next && next.startsWith('/')) {
+      setNextPath(next)
+    }
 
     fetch('/api/auth/manager/me')
       .then(async (res) => {
@@ -43,7 +48,11 @@ export default function ResetManagerPasswordPage() {
       })
       .then((me) => {
         if (!isFirstAccess && me.must_change_password) {
-          router.replace('/dashboard/reset-password?first_access=1')
+          const scopedNext =
+            me.scope === 'mapping' && me.mapping_slug
+              ? `/mapeamento/${me.mapping_slug}/dashboard`
+              : '/dashboard/client'
+          router.replace(`/dashboard/reset-password?first_access=1&next=${encodeURIComponent(scopedNext)}`)
         }
       })
       .catch(() => {
@@ -90,7 +99,7 @@ export default function ResetManagerPasswordPage() {
       setConfirmPassword('')
 
       setTimeout(() => {
-        router.push('/dashboard')
+        router.push(nextPath)
       }, 800)
     } catch {
       setError('Erro de conexão. Tente novamente.')

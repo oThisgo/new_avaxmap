@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession, isSuperuser } from '@/lib/auth/manager'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
 import { IETR_CODES, IETR_DOMAIN_WEIGHTS } from '@/lib/analytics/ietr-definition'
 
@@ -159,11 +160,17 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServerClient()
+  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
+
   const filters = buildFilters(request.nextUrl.searchParams)
 
   let collabQuery = supabase
     .from('collaborators')
     .select('id, area, role, gender, race_color, employment_type, birth_date')
+    .eq('mapping_id', mappingScope.mappingId)
   for (const [k, v] of Object.entries(filters)) {
     collabQuery = collabQuery.eq(k, v)
   }

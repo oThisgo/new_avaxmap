@@ -39,19 +39,20 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  let body: { email?: string; password?: string }
+  let body: { email?: string; password?: string; mapping_slug?: string }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Payload inválido' }, { status: 400 })
   }
 
-  const { email, password } = body
+  const { email, password, mapping_slug } = body
   if (!email || !password) {
     return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 })
   }
 
   const normalizedEmail = email.toLowerCase().trim()
+  const normalizedMappingSlug = mapping_slug?.trim().toLowerCase() || null
 
   const supabase = createServerClient()
   const { data: manager, error } = await supabase
@@ -82,6 +83,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
   }
 
+  if (normalizedMappingSlug) {
+    const { data: mapping, error: mappingError } = await supabase
+      .from('mappings')
+      .select('id, slug, status')
+      .eq('slug', normalizedMappingSlug)
+      .single()
+
+    if (mappingError || !mapping || mapping.status !== 'active') {
+      return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 404 })
+    }
+
+    const { data: access, error: accessError } = await supabase
+      .from('mapping_managers')
+      .select('id')
+      .eq('mapping_id', mapping.id)
+      .eq('manager_id', manager.id)
+      .single()
+
+    if (accessError || !access) {
+      return NextResponse.json({ error: 'Sem acesso a este mapeamento.' }, { status: 403 })
+    }
+  }
+
   // Migração progressiva: hash legado -> bcrypt após login bem-sucedido.
   if (usedLegacyHash) {
     const newHash = await hash(password, 12)
@@ -108,6 +132,15 @@ export async function POST(request: NextRequest) {
 
   const response = NextResponse.json({ ok: true, must_change_password: unwrapped.temporary })
   response.cookies.set('manager_session', sessionToken, { ...cookieOpts, httpOnly: true })
+  response.cookies.set('manager_scope', normalizedMappingSlug ? 'mapping' : 'client', {
+    ...cookieOpts,
+    httpOnly: true,
+  })
+  response.cookies.set('active_mapping_slug', normalizedMappingSlug ?? '', {
+    ...cookieOpts,
+    httpOnly: true,
+    maxAge: normalizedMappingSlug ? 60 * 60 * 8 : 0,
+  })
   // Cookie não-httpOnly apenas para exibição do nome/role no UI (sem dados sensíveis)
   response.cookies.set(
     'manager_display',
@@ -116,6 +149,7 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       role: manager.role ?? 'manager',
       must_change_password: unwrapped.temporary,
+      mapping_slug: normalizedMappingSlug,
     }),
     { ...cookieOpts, httpOnly: false },
   )
@@ -127,5 +161,7 @@ export async function DELETE() {
   const response = NextResponse.json({ ok: true })
   response.cookies.delete('manager_session')
   response.cookies.delete('manager_display')
+  response.cookies.delete('manager_scope')
+  response.cookies.delete('active_mapping_slug')
   return response
 }

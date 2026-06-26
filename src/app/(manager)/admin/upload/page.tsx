@@ -111,7 +111,7 @@ export default function UploadCollaboratorsPage() {
 
         <h1 className="text-2xl font-semibold mb-1">Importar Colaboradores</h1>
         <p className="text-sm mb-8" style={{ color: T.textMuted }}>
-          Faça upload do CSV de dados demográficos. CPFs já cadastrados terão seus dados atualizados sem resetar respostas. Novos CPFs serão inseridos. CPFs removidos do CSV permanecem no banco.
+          Faça upload do CSV de dados demográficos. O sistema usa a credencial configurada no mapeamento e atualiza cadastros existentes sem resetar respostas.
         </p>
 
         {/* Drop zone */}
@@ -156,24 +156,13 @@ export default function UploadCollaboratorsPage() {
 
         {/* Colunas esperadas */}
         <div className="mt-4 rounded-xl p-4" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
-          <p className="text-xs font-semibold mb-2" style={{ color: T.textFaint }}>COLUNAS ESPERADAS NO CSV</p>
-          <div className="flex flex-wrap gap-2">
-            {['Nome completo', 'CPF', 'Data de nascimento*', 'E-mail', 'Área', 'Cargo', 'Gênero*', 'Raça*', 'Idade*', 'Vínculo', 'Organização'].map((col) => (
-              <span
-                key={col}
-                className="text-xs px-2 py-1 rounded-md"
-                style={{
-                  backgroundColor: col.endsWith('*') ? T.surface2 : T.surface2,
-                  color: col.endsWith('*') ? T.textFaint : T.textMuted,
-                  border: `1px solid ${T.border}`,
-                  textDecoration: col.endsWith('*') ? 'line-through' : 'none',
-                }}
-              >
-                {col.replace('*', '')}
-              </span>
-            ))}
-          </div>
-          <p className="text-xs mt-2" style={{ color: T.textFaint }}>* Colunas riscadas são ignoradas (coletadas no formulário)</p>
+          <p className="text-xs font-semibold mb-2" style={{ color: T.textFaint }}>ESTRUTURA FLEXÍVEL</p>
+          <p className="text-xs" style={{ color: T.textMuted }}>
+            O parser usa o cabeçalho do CSV e a configuração salva do mapeamento (credencial, campos padrão e estratificações).
+          </p>
+          <p className="text-xs mt-1" style={{ color: T.textFaint }}>
+            Dica: mantenha os mesmos nomes de coluna definidos na criação do mapeamento para melhor reconhecimento.
+          </p>
         </div>
 
         {/* Botão */}
@@ -214,7 +203,7 @@ export default function UploadCollaboratorsPage() {
             {result.parse_errors.length > 0 && (
               <div>
                 <p className="text-xs font-semibold mb-1" style={{ color: BRAND_COLORS.primary }}>
-                  {result.parse_errors.length} linha(s) ignoradas por CPF inválido:
+                  {result.parse_errors.length} linha(s) ignoradas por credencial inválida ou dados ausentes:
                 </p>
                 <ul className="text-xs space-y-0.5" style={{ color: '#A3A3A3' }}>
                   {result.parse_errors.map((e, i) => <li key={i}>{e}</li>)}

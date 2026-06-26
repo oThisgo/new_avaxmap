@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 import Image from 'next/image'
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -11,8 +11,11 @@ interface SubmitLikeEvent {
   preventDefault: () => void
 }
 
-export default function ManagerLoginPage() {
+export default function MappingManagerLoginPage() {
   const router = useRouter()
+  const params = useParams<{ slug: string }>()
+  const mappingSlug = params.slug
+
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const T = {
@@ -22,7 +25,9 @@ export default function ManagerLoginPage() {
     text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
     textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
     inputBg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightSurface2,
+    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
   }
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -37,7 +42,11 @@ export default function ManagerLoginPage() {
       const res = await fetch('/api/auth/manager', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          mapping_slug: mappingSlug,
+        }),
       })
 
       const data = await res.json()
@@ -48,11 +57,12 @@ export default function ManagerLoginPage() {
       }
 
       if (data.must_change_password) {
-        router.push('/dashboard/reset-password?first_access=1')
+        const next = `/mapeamento/${mappingSlug}/dashboard`
+        router.push(`/dashboard/reset-password?first_access=1&next=${encodeURIComponent(next)}`)
         return
       }
 
-      router.push('/dashboard/client')
+      router.push(`/mapeamento/${mappingSlug}/dashboard`)
     } catch {
       setError('Erro de conexão. Tente novamente.')
     } finally {
@@ -66,12 +76,14 @@ export default function ManagerLoginPage() {
       style={{ backgroundColor: T.bg }}
     >
       <div className="w-full max-w-md -mt-16">
-        {/* Toggle no canto superior direito */}
         <div className="flex justify-end mb-4">
           <ThemeToggle />
         </div>
 
-        {/* Logo */}
+        <div className="mb-3 text-center text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>
+          Mapeamento: {mappingSlug}
+        </div>
+
         <div className="flex justify-center mb-10">
           <div
             className="w-26 h-26 rounded-full flex items-center justify-center overflow-hidden p-4"
@@ -85,17 +97,16 @@ export default function ManagerLoginPage() {
               className="object-contain"
               style={{ height: 'auto' }}
               onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none'
+                ;(e.target as HTMLImageElement).style.display = 'none'
               }}
             />
           </div>
         </div>
 
-        {/* Card */}
         <div className="rounded-2xl p-8" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
-          <h1 className="text-2xl font-semibold mb-1" style={{ color: T.text }}>AvaxMap</h1>
+          <h1 className="text-2xl font-semibold mb-1" style={{ color: T.text }}>Acesso do Gestor</h1>
           <p className="text-sm mb-8" style={{ color: T.textMuted }}>
-            Entre com suas credenciais para acessar o dashboard.
+            Entre com suas credenciais para acessar este mapeamento.
           </p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -148,17 +159,17 @@ export default function ManagerLoginPage() {
               disabled={loading}
               className="w-full rounded-lg py-3 text-sm font-semibold transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
+              onMouseEnter={(e) => {
+                if (!loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = BRAND_COLORS.primary
+              }}
             >
-              {loading ? 'Entrando...' : 'Entrar →'}
+              {loading ? 'Entrando...' : 'Entrar ->'}
             </button>
           </form>
         </div>
-
-        <p className="text-center text-xs mt-6" style={{ color: isDark ? '#525252' : '#A3A3A3' }}>
-          {BRAND_NAME} — Plataforma de Mapeamento de Riscos Psicossociais
-        </p>
       </div>
     </div>
   )

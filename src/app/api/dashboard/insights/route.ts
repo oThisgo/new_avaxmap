@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession, isSuperuser } from '@/lib/auth/manager'
+import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
 import { generateText } from 'ai'
 import { google } from '@ai-sdk/google'
 
@@ -317,9 +318,17 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServerClient()
+  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in mappingScope) {
+    return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
+  }
+
   const filters = buildFilters(request.nextUrl.searchParams)
 
-  let collabQuery = supabase.from('collaborators').select('id, area, role, gender, race_color, employment_type')
+  let collabQuery = supabase
+    .from('collaborators')
+    .select('id, area, role, gender, race_color, employment_type')
+    .eq('mapping_id', mappingScope.mappingId)
   for (const [k, v] of Object.entries(filters)) {
     collabQuery = collabQuery.eq(k, v)
   }
@@ -335,6 +344,7 @@ export async function GET(request: NextRequest) {
   const { data: answeredCollabs, error: answeredErr } = await supabase
     .from('collaborators')
     .select('id')
+    .eq('mapping_id', mappingScope.mappingId)
     .in('id', allIds)
     .eq('has_answered', true)
   if (answeredErr) return NextResponse.json({ error: answeredErr.message }, { status: 500 })

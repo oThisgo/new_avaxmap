@@ -135,6 +135,14 @@ function clearCollaboratorCookie(response: NextResponse): NextResponse {
     maxAge: 0,
   })
 
+  response.cookies.set('collaborator_mapping_slug', '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  })
+
   return response
 }
 
@@ -155,6 +163,7 @@ async function saveOptionalFields(
 
 export async function POST(request: NextRequest) {
   const collaboratorId = request.cookies.get('collaborator_id')?.value
+  const collaboratorMappingSlug = request.cookies.get('collaborator_mapping_slug')?.value
   if (!collaboratorId) {
     return NextResponse.json({ error: 'Sessão expirada. Faça login novamente.' }, { status: 401 })
   }
@@ -218,15 +227,38 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServerClient()
 
+  let mappingIdFromSlug: string | null = null
+  if (collaboratorMappingSlug) {
+    const { data: mapping } = await supabase
+      .from('mappings')
+      .select('id, status')
+      .eq('slug', collaboratorMappingSlug)
+      .single()
+
+    if (!mapping || mapping.status !== 'active') {
+      return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 401 })
+    }
+
+    mappingIdFromSlug = mapping.id
+  }
+
   const collaboratorResult = await supabase
     .from('collaborators')
-    .select('id, has_answered')
+    .select('id, has_answered, mapping_id')
     .eq('id', collaboratorId)
     .single()
 
-  const collaborator = collaboratorResult.data as { id: string; has_answered: boolean } | null
+  const collaborator = collaboratorResult.data as {
+    id: string
+    has_answered: boolean
+    mapping_id: string | null
+  } | null
   if (!collaborator) {
     return NextResponse.json({ error: 'Colaborador não encontrado.' }, { status: 404 })
+  }
+
+  if (mappingIdFromSlug && collaborator.mapping_id !== mappingIdFromSlug) {
+    return NextResponse.json({ error: 'Colaborador não pertence ao mapeamento ativo.' }, { status: 403 })
   }
 
   if (collaborator.has_answered) {

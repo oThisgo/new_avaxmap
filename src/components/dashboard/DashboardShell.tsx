@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import type jsPDFType from 'jspdf'
 import OverviewTab from './tabs/OverviewTab'
 import DemographicsTab from './tabs/DemographicsTab'
@@ -127,10 +127,14 @@ interface ManagerDisplay {
   email: string
   role: string
   must_change_password?: boolean
+  mapping_slug?: string | null
 }
 
 export default function DashboardShell() {
   const router = useRouter()
+  const pathname = usePathname()
+  // Slug extraído da URL — síncrono, não depende de state ou cookie
+  const slugFromPath = pathname?.match(/^\/mapeamento\/([^/]+)\/dashboard/)?.[1] ?? null
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
@@ -159,6 +163,7 @@ export default function DashboardShell() {
     area: '', role: '', gender: '', race_color: '', employment_type: '',
   })
   const [managerDisplay, setManagerDisplay] = useState<ManagerDisplay | null>(null)
+  const [activeMappingSlug, setActiveMappingSlug] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [reportMenuOpen, setReportMenuOpen] = useState(false)
@@ -180,7 +185,11 @@ export default function DashboardShell() {
       .find((row) => row.startsWith('manager_display='))
     if (match) {
       try {
-        setManagerDisplay(JSON.parse(decodeURIComponent(match.split('=').slice(1).join('='))))
+        const parsed = JSON.parse(decodeURIComponent(match.split('=').slice(1).join('='))) as ManagerDisplay
+        setManagerDisplay(parsed)
+        if (parsed.mapping_slug) {
+          setActiveMappingSlug(parsed.mapping_slug)
+        }
       } catch {}
     }
   }, [])
@@ -192,10 +201,25 @@ export default function DashboardShell() {
         return res.json()
       })
       .then((me) => {
-        if (me.must_change_password) router.replace('/dashboard/reset-password?first_access=1')
+        if (me.mapping_slug) {
+          setActiveMappingSlug(me.mapping_slug)
+        }
+        if (me.must_change_password) {
+          const next = me.mapping_slug
+            ? `/mapeamento/${me.mapping_slug}/dashboard`
+            : '/dashboard/client'
+          router.replace(`/dashboard/reset-password?first_access=1&next=${encodeURIComponent(next)}`)
+        }
       })
-      .catch(() => router.replace('/manager/login'))
-  }, [router])
+      .catch(() => {
+        const slug = slugFromPath ?? activeMappingSlug
+        if (slug) {
+          router.replace(`/mapeamento/${slug}/manager/login`)
+          return
+        }
+        router.replace('/manager/login')
+      })
+  }, [activeMappingSlug, router, slugFromPath])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -208,13 +232,20 @@ export default function DashboardShell() {
 
   async function handleLogout() {
     await fetch('/api/auth/manager', { method: 'DELETE' })
+    const slug = slugFromPath ?? activeMappingSlug
+    if (slug) {
+      router.push(`/mapeamento/${slug}/manager/login`)
+      return
+    }
     router.push('/manager/login')
   }
 
   function handleGoToResetPassword() {
     setMenuOpen(false)
     setMobileMenuOpen(false)
-    router.push('/dashboard/reset-password')
+    const slug = slugFromPath ?? activeMappingSlug
+    const next = slug ? `/mapeamento/${slug}/dashboard` : '/dashboard/client'
+    router.push(`/dashboard/reset-password?next=${encodeURIComponent(next)}`)
   }
 
   async function handleDownloadPDF() {
