@@ -80,10 +80,6 @@ export default function MappingManagerLoginPage() {
           <ThemeToggle />
         </div>
 
-        <div className="mb-3 text-center text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>
-          Mapeamento: {mappingSlug}
-        </div>
-
         <div className="flex justify-center mb-10">
           <div
             className="w-26 h-26 rounded-full flex items-center justify-center overflow-hidden p-4"
@@ -166,7 +162,7 @@ export default function MappingManagerLoginPage() {
                 e.currentTarget.style.backgroundColor = BRAND_COLORS.primary
               }}
             >
-              {loading ? 'Entrando...' : 'Entrar ->'}
+              {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
         </div>

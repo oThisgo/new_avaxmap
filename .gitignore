@@ -44,3 +44,5 @@ documentacao_tecnica_estado_atual_whitelabel.md
 especificacao_modulos_mapeamento.md
 guia_tecnico_white_label_mapeamento.md
 teste_upload_colaboradores.csv
+logins-demo.md
+supabase-init.sql

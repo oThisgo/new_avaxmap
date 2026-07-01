@@ -8,6 +8,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
 import { HSE_QUESTIONS, HSE_SCALE_OPTIONS } from '@/lib/analytics/hse-definition'
 import { IETR_QUESTIONS, IETR_SCALE_OPTIONS, type IetrQuestionDefinition } from '@/lib/analytics/ietr-definition'
+import type { DemographicChartKey, MappingModuleKey } from '@/lib/mapping/config'
 
 type AnswerMap = Record<string, string>
 
@@ -381,9 +382,17 @@ function chunkBy<T>(items: readonly T[], chunkSize: number): T[][] {
 
 interface IetrFormProps {
   thankYouPath?: string
+  mappingSlug?: string
 }
 
-export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormProps>) {
+type MappingRuntimeConfig = {
+  modules: MappingModuleKey[]
+  demographic_columns: DemographicChartKey[]
+  column_mapping: Record<string, string>
+  tcle_text: string | null
+}
+
+export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Readonly<IetrFormProps>) {
   const router = useRouter()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
@@ -427,15 +436,26 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
   const [jobObservations, setJobObservations] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [configLoading, setConfigLoading] = useState(false)
+  const [mappingConfig, setMappingConfig] = useState<MappingRuntimeConfig>({
+    modules: ['sociodemografico', 'hse', 'ietr'],
+    demographic_columns: ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
+    column_mapping: {},
+    tcle_text: null,
+  })
 
-  const requiresIetr = !/^n[aã]o/i.test(socio.remote_status.trim())
+  const hasSocioModule = mappingConfig.modules.includes('sociodemografico')
+  const hasHseModule = mappingConfig.modules.includes('hse')
+  const hasIetrModule = mappingConfig.modules.includes('ietr')
+
+  const requiresIetr = hasIetrModule && (!hasSocioModule || !/^n[aã]o/i.test(socio.remote_status.trim()))
   const effectiveIetrQuestions = requiresIetr ? IETR_QUESTIONS : []
 
   const totalQuestions = HSE_QUESTIONS.length + effectiveIetrQuestions.length
   const answeredCount = Object.keys(hseAnswers).length + Object.keys(answers).filter((key) => effectiveIetrQuestions.some((q) => q.code === key)).length
   const completionPct = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 100
 
-  const unansweredHse = HSE_QUESTIONS.filter((q) => !hseAnswers[q.code])
+  const unansweredHse = hasHseModule ? HSE_QUESTIONS.filter((q) => !hseAnswers[q.code]) : []
   const unansweredIetr = effectiveIetrQuestions.filter((q) => !answers[q.code])
 
   const hsePages = useMemo(() => chunkBy(HSE_QUESTIONS, MOBILE_QUESTIONS_PER_PAGE), [])
@@ -470,8 +490,49 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
     if (mobilePage > maxPage) setMobilePage(maxPage)
   }, [mobileModule, ietrPages.length, activeMobilePages.length, mobilePage])
 
+  useEffect(() => {
+    if (!mappingSlug) return
+
+    setConfigLoading(true)
+    fetch(`/api/mapeamento/${mappingSlug}/config`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('config_unavailable')
+        return res.json()
+      })
+      .then((json) => {
+        if (!json?.config) return
+        setMappingConfig({
+          modules: Array.isArray(json.config.modules) && json.config.modules.length > 0
+            ? json.config.modules
+            : ['sociodemografico', 'hse', 'ietr'],
+          demographic_columns: Array.isArray(json.config.demographic_columns)
+            ? json.config.demographic_columns
+            : ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
+          column_mapping: json.config.column_mapping && typeof json.config.column_mapping === 'object'
+            ? json.config.column_mapping
+            : {},
+          tcle_text: typeof json.mapping?.tcle_text === 'string' && json.mapping.tcle_text.trim().length > 0
+            ? json.mapping.tcle_text
+            : null,
+        })
+      })
+      .catch(() => {})
+      .finally(() => setConfigLoading(false))
+  }, [mappingSlug])
+
   function toggleModule(moduleId: ModuleId) {
     setOpenModules((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }))
+  }
+
+  function isFieldPrefilledByCsv(field: string): boolean {
+    if (field === 'birth_date') {
+      return !!mappingConfig.column_mapping.birth_date || !!mappingConfig.column_mapping.age_range
+    }
+    return !!mappingConfig.column_mapping[field]
+  }
+
+  function shouldShowDemographicField(field: DemographicChartKey): boolean {
+    return mappingConfig.demographic_columns.includes(field) && !isFieldPrefilledByCsv(field)
   }
 
   function setSocioField(field: keyof SocioData, value: string) {
@@ -512,17 +573,21 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
     e.preventDefault()
     setError('')
 
-    if (
-      !socio.birth_date ||
-      !socio.gender ||
-      !socio.race_color ||
-      !socio.marital_status ||
-      !socio.education_level ||
-      !socio.disability ||
-      !socio.remote_status
-    ) {
-      setError('Preencha todos os campos sociodemográficos obrigatórios.')
-      return
+    if (hasSocioModule) {
+      const requiredMissing = [
+        shouldShowDemographicField('age_range') && !socio.birth_date,
+        shouldShowDemographicField('gender') && !socio.gender,
+        shouldShowDemographicField('race_color') && !socio.race_color,
+        shouldShowDemographicField('marital_status') && !socio.marital_status,
+        shouldShowDemographicField('education_level') && !socio.education_level,
+        shouldShowDemographicField('disability') && !socio.disability,
+        hasIetrModule && !socio.remote_status,
+      ].some(Boolean)
+
+      if (requiredMissing) {
+        setError('Preencha os campos sociodemográficos obrigatórios para este mapeamento.')
+        return
+      }
     }
 
     if (/^sim/i.test(socio.disability.trim()) && !socio.which_disability.trim()) {
@@ -530,18 +595,34 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
       return
     }
 
-    if (unansweredHse.length + unansweredIetr.length > 0) {
-      setError(`Responda todas as questões obrigatórias antes de enviar. Faltam ${unansweredHse.length + unansweredIetr.length}.`)
+    const unansweredTotal = unansweredHse.length + unansweredIetr.length
+    if (unansweredTotal > 0) {
+      setError(`Responda todas as questões obrigatórias antes de enviar. Faltam ${unansweredTotal}.`)
       return
     }
 
     setIsSubmitting(true)
 
     try {
+      const payloadSocio = {
+        birth_date: socio.birth_date,
+        gender: socio.gender,
+        race_color: socio.race_color,
+        marital_status: socio.marital_status,
+        education_level: socio.education_level,
+        disability: socio.disability,
+        which_disability: socio.which_disability,
+        remote_status: hasIetrModule ? (socio.remote_status || 'Sim') : 'Não',
+      }
+
       const payload = {
-        socio,
-        hseAnswers: HSE_QUESTIONS.map((q) => ({ questionCode: q.code, rawValue: hseAnswers[q.code] })),
-        ietrAnswers: IETR_QUESTIONS.map((q) => ({ questionCode: q.code, rawValue: answers[q.code] })),
+        socio: payloadSocio,
+        hseAnswers: hasHseModule
+          ? HSE_QUESTIONS.map((q) => ({ questionCode: q.code, rawValue: hseAnswers[q.code] }))
+          : [],
+        ietrAnswers: (hasIetrModule && requiresIetr)
+          ? IETR_QUESTIONS.map((q) => ({ questionCode: q.code, rawValue: answers[q.code] }))
+          : [],
         jobObservations: jobObservations.trim() || null,
       }
 
@@ -824,17 +905,21 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
         <form id="ietr-form" onSubmit={handleSubmit} className="space-y-6">
           {isMobile ? (
             <>
-              <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
+              {hasSocioModule && (
+                <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
                 <div className="mb-5 space-y-1">
                   <h2 className="text-xl font-semibold" style={{ color: T.text }}>Dados sociodemográficos</h2>
                   <p className="text-sm" style={{ color: T.textFaint }}>Esses dados serão usados para análises agregadas por perfil.</p>
                 </div>
                 {renderSocioFields()}
-              </section>
+                </section>
+              )}
 
-              <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
+              {(hasHseModule || hasIetrModule) && (
+                <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
                 <div className="mb-4 flex items-center gap-2">
-                  <button
+                  {hasHseModule && (
+                    <button
                     type="button"
                     onClick={() => { setMobileModule('hse'); setMobilePage(0) }}
                     className="rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
@@ -846,6 +931,8 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
                   >
                     HSE
                   </button>
+                  )}
+                  {hasIetrModule && (
                   <button
                     type="button"
                     onClick={() => { setMobileModule('ietr'); setMobilePage(0) }}
@@ -859,6 +946,7 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
                   >
                     IETR
                   </button>
+                  )}
                 </div>
 
                 <div className="mb-4 flex items-center justify-between text-sm" style={{ color: T.textMuted }}>
@@ -888,7 +976,8 @@ export function IetrForm({ thankYouPath = '/agradecimento' }: Readonly<IetrFormP
                     Próxima
                   </button>
                 </div>
-              </section>
+                </section>
+              )}
             </>
           ) : (
             renderDesktopModules()

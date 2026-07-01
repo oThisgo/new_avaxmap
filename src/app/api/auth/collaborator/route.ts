@@ -3,6 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
 import { hashCpf } from '@/lib/security/crypto'
+import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 
 const AUTH_WINDOW_MS = 60_000
 const AUTH_LIMIT = 10
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
     typeof payload.mapping_slug === 'string' && payload.mapping_slug.trim().length > 0
       ? payload.mapping_slug.trim().toLowerCase()
       : null
+  const tcleAccepted = payload.tcle_accepted === true
 
   const supabase = createServerClient()
 
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
   if (mappingSlug) {
     const { data: mapping, error: mappingError } = await supabase
       .from('mappings')
-      .select('id, status, config')
+      .select('id, status, config, tcle_text')
       .eq('slug', mappingSlug)
       .single()
 
@@ -82,6 +84,12 @@ export async function POST(request: NextRequest) {
     mappingId = mapping.id
     const config = (mapping.config ?? {}) as { credential_column?: unknown }
     mappingCredentialColumn = typeof config.credential_column === 'string' ? config.credential_column : null
+
+    const tcleHtml = sanitizeRichTextHtml(mapping.tcle_text ?? '')
+    const requiresTcleAcceptance = !isRichTextEmpty(tcleHtml)
+    if (requiresTcleAcceptance && !tcleAccepted) {
+      return NextResponse.json({ error: 'Você precisa aceitar o TCLE para continuar.' }, { status: 403 })
+    }
   }
 
   const expectsCpf = isCpfLikeCredential(mappingCredentialColumn)
@@ -137,6 +145,14 @@ export async function POST(request: NextRequest) {
     sameSite: 'lax',
     path: '/',
     maxAge: mappingSlug ? 60 * 60 * 2 : 0,
+  })
+
+  cookieStore.set('collaborator_lgpd_accepted', '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
   })
 
   return NextResponse.json({ ok: true })

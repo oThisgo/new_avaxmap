@@ -14,8 +14,18 @@ function buildFilters(params: URLSearchParams) {
 
 function getAgeRange(birthDate: string | null): string | null {
   if (!birthDate) return null
+  const trimmed = birthDate.trim()
+  if (/^\d{1,3}$/.test(trimmed)) {
+    const age = Number(trimmed)
+    if (!Number.isFinite(age) || age < 0 || age > 120) return null
+    if (age < 25) return 'Até 24'
+    if (age < 35) return '25–34'
+    if (age < 45) return '35–44'
+    if (age < 55) return '45–54'
+    return '55+'
+  }
   // Suporta DD/MM/YYYY (formato do CSV) e YYYY-MM-DD
-  let normalized = birthDate
+  let normalized = trimmed
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(birthDate)) {
     const [day, month, year] = birthDate.split('/')
     normalized = `${year}-${month}-${day}`

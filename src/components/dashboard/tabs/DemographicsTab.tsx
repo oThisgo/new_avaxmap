@@ -21,6 +21,16 @@ interface DemoData {
   disability_types: DistItem[]
 }
 
+const CHART_LABELS: Record<string, string> = {
+  gender: 'Gênero',
+  age_range: 'Faixa Etária',
+  race_color: 'Raça / Cor',
+  education_level: 'Escolaridade',
+  marital_status: 'Estado Civil',
+  disability: 'Deficiência (PcD)',
+  disability_types: 'Tipos de Deficiência',
+}
+
 function BarTooltip({ active, payload, label, isDark, color }: { active?: boolean; payload?: { value: number }[]; label?: string; isDark: boolean; color: string }) {
   if (!active || !payload?.length) return null
   return (
@@ -98,7 +108,7 @@ function DonutChart({ title, data }: { title: string; data: DistItem[] }) {
   )
 }
 
-export default function DemographicsTab({ query }: { query: string }) {
+export default function DemographicsTab({ query, chartKeys }: { query: string; chartKeys?: string[] }) {
   const [data, setData] = useState<DemoData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -113,19 +123,31 @@ export default function DemographicsTab({ query }: { query: string }) {
   if (loading) return <p className="text-sm" style={{ color: '#737373' }}>Carregando...</p>
   if (!data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
 
+  const orderedKeys = (chartKeys && chartKeys.length > 0)
+    ? chartKeys.filter((key) => key in data)
+    : ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types']
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <DonutChart title="Gênero" data={data.gender} />
-      <HBarChart title="Faixa Etária" data={data.age_range} />
-      <HBarChart title="Raça / Cor" data={data.race_color} />
-      <HBarChart title="Escolaridade" data={data.education_level} />
-      <HBarChart title="Estado Civil" data={data.marital_status} />
-      <DonutChart title="Deficiência (PcD)" data={data.disability} />
-      {data.disability_types.length > 0 && (
-        <div className="md:col-span-2">
-          <HBarChart title="Tipos de Deficiência" data={data.disability_types} />
-        </div>
-      )}
+      {orderedKeys.map((key) => {
+        const chartData = data[key as keyof DemoData] as DistItem[]
+        if (!Array.isArray(chartData)) return null
+
+        if (key === 'disability_types') {
+          if (chartData.length === 0) return null
+          return (
+            <div key={key} className="md:col-span-2">
+              <HBarChart title={CHART_LABELS[key] ?? key} data={chartData} />
+            </div>
+          )
+        }
+
+        if (key === 'gender' || key === 'disability') {
+          return <DonutChart key={key} title={CHART_LABELS[key] ?? key} data={chartData} />
+        }
+
+        return <HBarChart key={key} title={CHART_LABELS[key] ?? key} data={chartData} />
+      })}
     </div>
   )
 }

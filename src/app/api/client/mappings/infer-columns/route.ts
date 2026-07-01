@@ -8,6 +8,7 @@ type CanonicalField =
   | 'cpf'
   | 'employee_code'
   | 'email'
+  | 'age_range'
   | 'birth_date'
   | 'gender'
   | 'race_color'
@@ -21,6 +22,7 @@ const FIELD_PATTERNS: Array<{ field: CanonicalField; patterns: RegExp[] }> = [
   { field: 'cpf', patterns: [/^cpf$/, /cpf.*colaborador/, /documento/, /tax.?id/] },
   { field: 'employee_code', patterns: [/matricula/, /codigo/, /id.*colaborador/, /employee.*id/, /registro/] },
   { field: 'email', patterns: [/^e-?mail$/, /email/, /mail/] },
+  { field: 'age_range', patterns: [/^idade$/, /faixa.*etaria/, /age/] },
   { field: 'birth_date', patterns: [/nascimento/, /data.*nasc/, /birth/, /dob/] },
   { field: 'gender', patterns: [/genero/, /sexo/, /gender/] },
   { field: 'race_color', patterns: [/raca/, /raça/, /cor/, /etnia/, /ethnic/] },

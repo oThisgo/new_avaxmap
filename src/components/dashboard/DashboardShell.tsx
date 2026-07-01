@@ -106,20 +106,12 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id']
 
-interface FilterOptions {
-  area: string[]
-  role: string[]
-  gender: string[]
-  race_color: string[]
-  employment_type: string[]
-}
+type FilterOptions = Record<string, string[]>
+type ActiveFilters = Record<string, string>
 
-interface ActiveFilters {
-  area: string
-  role: string
-  gender: string
-  race_color: string
-  employment_type: string
+type DashboardRuntimeConfig = {
+  modules: string[]
+  demographic_columns: string[]
 }
 
 interface ManagerDisplay {
@@ -155,13 +147,23 @@ export default function DashboardShell() {
     menuBg: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
   }
 
+  const [tabs, setTabs] = useState<Array<{ id: TabId; label: string }>>(TABS as unknown as Array<{ id: TabId; label: string }>)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
-    area: [], role: [], gender: [], race_color: [], employment_type: [],
+  const [dashboardConfig, setDashboardConfig] = useState<DashboardRuntimeConfig>({
+    modules: ['sociodemografico', 'hse', 'ietr'],
+    demographic_columns: ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
   })
-  const [filters, setFilters] = useState<ActiveFilters>({
-    area: '', role: '', gender: '', race_color: '', employment_type: '',
+  const [availableFilters, setAvailableFilters] = useState<string[]>(['area', 'role', 'employment_type', 'gender', 'race_color'])
+  const [filterLabels, setFilterLabels] = useState<Record<string, string>>({
+    area: 'Área',
+    role: 'Cargo',
+    employment_type: 'Vínculo',
+    gender: 'Gênero',
+    race_color: 'Raça/Cor',
+    age_range: 'Faixa etária',
   })
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({})
+  const [filters, setFilters] = useState<ActiveFilters>({})
   const [managerDisplay, setManagerDisplay] = useState<ManagerDisplay | null>(null)
   const [activeMappingSlug, setActiveMappingSlug] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -193,6 +195,36 @@ export default function DashboardShell() {
       } catch {}
     }
   }, [])
+
+  useEffect(() => {
+    fetch('/api/dashboard/config')
+      .then(async (res) => {
+        if (!res.ok) throw new Error('dashboard_config_unavailable')
+        return res.json()
+      })
+      .then((json) => {
+        const modules: string[] = Array.isArray(json?.config?.modules) ? json.config.modules : ['sociodemografico', 'hse', 'ietr']
+        const dynamicTabs: Array<{ id: TabId; label: string }> = [{ id: 'overview', label: 'Visão Geral' }]
+        if (modules.includes('sociodemografico')) dynamicTabs.push({ id: 'demographics', label: 'Dados Demográficos' })
+        if (modules.includes('hse')) dynamicTabs.push({ id: 'hse', label: 'HSE por Domínio' })
+        if (modules.includes('ietr')) dynamicTabs.push({ id: 'remote', label: 'Trabalho Remoto' })
+        dynamicTabs.push({ id: 'insights', label: '✦ Insights' })
+        setTabs(dynamicTabs)
+
+        const demographicColumns: string[] = Array.isArray(json?.config?.demographic_columns)
+          ? json.config.demographic_columns
+          : ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types']
+
+        setDashboardConfig({ modules, demographic_columns: demographicColumns })
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(tabs[0]?.id ?? 'overview')
+    }
+  }, [activeTab, tabs])
 
   useEffect(() => {
     fetch('/api/auth/manager/me')
@@ -369,7 +401,19 @@ export default function DashboardShell() {
   useEffect(() => {
     fetch('/api/dashboard/filters')
       .then((r) => r.json())
-      .then((d) => setFilterOptions(d))
+      .then((d) => {
+        const keys: string[] = Array.isArray(d?.available_filters) ? d.available_filters : []
+        const options: Record<string, string[]> = d?.options && typeof d.options === 'object' ? d.options : {}
+        const labels: Record<string, string> = d?.labels && typeof d.labels === 'object' ? d.labels : {}
+        setAvailableFilters(keys)
+        setFilterOptions(options)
+        setFilterLabels((prev) => ({ ...prev, ...labels }))
+        setFilters((prev) => {
+          const next: Record<string, string> = {}
+          for (const key of keys) next[key] = prev[key] ?? ''
+          return next
+        })
+      })
       .catch(() => {})
   }, [])
 
@@ -381,15 +425,22 @@ export default function DashboardShell() {
     return params.toString()
   }, [filters])
 
-  const handleFilter = (key: keyof ActiveFilters, value: string) => {
+  const handleFilter = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
   }
 
   const clearFilters = () => {
-    setFilters({ area: '', role: '', gender: '', race_color: '', employment_type: '' })
+    setFilters((prev) => Object.fromEntries(Object.keys(prev).map((key) => [key, ''])))
   }
 
   const activeCount = Object.values(filters).filter(Boolean).length
+  const reportRiskFilters = {
+    area: filters.area ?? '',
+    role: filters.role ?? '',
+    gender: filters.gender ?? '',
+    race_color: filters.race_color ?? '',
+    employment_type: filters.employment_type ?? '',
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: T.bg, color: T.text }}>
@@ -485,16 +536,24 @@ export default function DashboardShell() {
       )}
 
       <div className="px-4 sm:px-6 py-3 flex flex-wrap gap-3 border-b" style={{ borderColor: T.border, backgroundColor: T.surface }}>
-        {(['area', 'role', 'employment_type', 'gender', 'race_color'] as const).map((key) => {
-          const labels: Record<string, string> = { area: 'Área', role: 'Cargo', employment_type: 'Vínculo', gender: 'Gênero', race_color: 'Raça/Cor' }
-          return <FilterDropdown key={key} label={labels[key]} value={filters[key]} options={filterOptions[key]} onChange={(v) => handleFilter(key, v)} T={T} />
+        {availableFilters.map((key) => {
+          return (
+            <FilterDropdown
+              key={key}
+              label={filterLabels[key] ?? key}
+              value={filters[key] ?? ''}
+              options={filterOptions[key] ?? []}
+              onChange={(v) => handleFilter(key, v)}
+              T={T}
+            />
+          )
         })}
       </div>
 
       <div className="px-4 sm:px-6 pt-4 border-b overflow-x-auto" style={{ borderColor: T.border }}>
         <div className="relative flex gap-1 min-w-max">
           <div aria-hidden style={{ position: 'absolute', bottom: 0, left: tabIndicator.left, width: tabIndicator.width, height: '100%', backgroundColor: BRAND_COLORS.primary, borderRadius: '6px 6px 0 0', transition: 'left 0.22s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1)', zIndex: 0 }} />
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <button key={tab.id} ref={(el) => { tabRefs.current[tab.id] = el }} onClick={() => setActiveTab(tab.id)} className="relative px-4 py-2 text-sm font-medium rounded-t-md whitespace-nowrap flex-shrink-0 transition-colors" style={{ color: activeTab === tab.id ? '#FFFFFF' : T.textMuted, backgroundColor: 'transparent', zIndex: 1 }} onMouseEnter={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.text }} onMouseLeave={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.textMuted }}>
               {tab.label}
             </button>
@@ -504,13 +563,13 @@ export default function DashboardShell() {
 
       <main className="p-4 sm:p-6 max-w-full overflow-x-hidden">
         {activeTab === 'overview' && <OverviewTab query={buildQuery()} />}
-        {activeTab === 'demographics' && <DemographicsTab query={buildQuery()} />}
+        {activeTab === 'demographics' && <DemographicsTab query={buildQuery()} chartKeys={dashboardConfig.demographic_columns} />}
         {activeTab === 'hse' && <HseTab query={buildQuery()} />}
         {activeTab === 'remote' && <RemoteTab query={buildQuery()} />}
         {activeTab === 'insights' && <InsightsTab query={buildQuery()} isSuperuser={managerDisplay?.role === 'superuser'} />}
       </main>
 
-      {reportRiskModalOpen && <ReportRiskModal filters={filters} theme={T} isDark={isDark} onClose={() => setReportRiskModalOpen(false)} />}
+      {reportRiskModalOpen && <ReportRiskModal filters={reportRiskFilters} theme={T} isDark={isDark} onClose={() => setReportRiskModalOpen(false)} />}
     </div>
   )
 }

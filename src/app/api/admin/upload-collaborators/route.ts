@@ -184,6 +184,7 @@ export async function POST(request: NextRequest) {
   const fullNameColumn = pickMappedColumn(headers, mappingConfig, 'full_name', [/^nome$/, /nome.*completo/, /colaborador/, /funcionario/, /employee.*name/])
   const emailColumn = pickMappedColumn(headers, mappingConfig, 'email', [/^e-?mail$/, /email/, /mail/])
   const birthDateColumn = pickMappedColumn(headers, mappingConfig, 'birth_date', [/nascimento/, /data.*nasc/, /birth/, /dob/])
+  const ageRangeColumn = pickMappedColumn(headers, mappingConfig, 'age_range', [/^idade$/, /faixa.*etaria/, /age/])
   const genderColumn = pickMappedColumn(headers, mappingConfig, 'gender', [/genero/, /sexo/, /gender/])
   const raceColorColumn = pickMappedColumn(headers, mappingConfig, 'race_color', [/raca/, /etnia/, /cor/, /ethnic/])
   const educationColumn = pickMappedColumn(headers, mappingConfig, 'education_level', [/escolaridade/, /formacao/, /education/])
@@ -244,6 +245,10 @@ export async function POST(request: NextRequest) {
       continue
     }
 
+    const birthDateValue = readValue(cols, headerIndexes, birthDateColumn)
+    const ageValue = readValue(cols, headerIndexes, ageRangeColumn)
+    const normalizedBirthOrAge = birthDateValue || ageValue
+
     const disabilityCol = readValue(cols, headerIndexes, disabilityTypeColumn ?? disabilityColumn)
     const hasDisability = disabilityCol.toLowerCase() !== 'sem deficiência' && disabilityCol !== ''
 
@@ -252,7 +257,7 @@ export async function POST(request: NextRequest) {
       cpf: hashCpf(normalizedCredential),
       name: encryptFieldOrNull(readValue(cols, headerIndexes, fullNameColumn)) ?? '',
       email: encryptFieldOrNull(readValue(cols, headerIndexes, emailColumn)),
-      birth_date: encryptFieldOrNull(readValue(cols, headerIndexes, birthDateColumn)),
+      birth_date: encryptFieldOrNull(normalizedBirthOrAge),
       area: readValue(cols, headerIndexes, areaColumn) || null,
       role: readValue(cols, headerIndexes, roleColumn) || null,
       gender: readValue(cols, headerIndexes, genderColumn) || null,

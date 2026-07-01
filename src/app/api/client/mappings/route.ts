@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession } from '@/lib/auth/manager'
+import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/password'
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'crypto'
@@ -12,6 +13,16 @@ type MappingPayload = {
   csv_columns?: string[]
   credential_column?: string
   stratification_columns?: string[]
+  demographic_columns?: string[]
+  column_display_names?: Record<string, string>
+  column_profiles?: Array<{
+    source_name?: string
+    display_name?: string
+    is_dashboard_filter?: boolean
+    is_demographic?: boolean
+    locked?: boolean
+    locked_reason?: string | null
+  }>
   column_mapping?: Record<string, string>
   tcle_text?: string
   dashboard_filters?: string[]
@@ -101,6 +112,65 @@ function normalizeColumnMapping(
     if (!allowedColumns.has(column)) continue
     output[key] = column
   }
+  return output
+}
+
+type NormalizedColumnProfile = {
+  source_name: string
+  display_name: string
+  is_dashboard_filter: boolean
+  is_demographic: boolean
+  locked: boolean
+  locked_reason: string | null
+}
+
+function normalizeColumnProfiles(
+  value: unknown,
+  csvColumns: string[],
+): NormalizedColumnProfile[] {
+  if (!Array.isArray(value)) return []
+  const allowedColumns = new Set(csvColumns)
+  const profiles: NormalizedColumnProfile[] = []
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    const sourceName = typeof row.source_name === 'string' ? row.source_name.trim() : ''
+    if (!sourceName || !allowedColumns.has(sourceName)) continue
+
+    const displayName = typeof row.display_name === 'string' && row.display_name.trim().length > 0
+      ? row.display_name.trim()
+      : sourceName
+
+    profiles.push({
+      source_name: sourceName,
+      display_name: displayName,
+      is_dashboard_filter: row.is_dashboard_filter === true,
+      is_demographic: row.is_demographic === true,
+      locked: row.locked === true,
+      locked_reason: typeof row.locked_reason === 'string' ? row.locked_reason : null,
+    })
+  }
+
+  return profiles
+}
+
+function normalizeColumnDisplayNames(
+  value: unknown,
+  csvColumns: string[],
+): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const allowedColumns = new Set(csvColumns)
+  const output: Record<string, string> = {}
+
+  for (const [key, rawLabel] of Object.entries(value as Record<string, unknown>)) {
+    const column = key.trim()
+    if (!column || !allowedColumns.has(column)) continue
+    if (typeof rawLabel !== 'string') continue
+    const label = rawLabel.trim()
+    output[column] = label || column
+  }
+
   return output
 }
 
@@ -201,10 +271,27 @@ export async function POST(request: NextRequest) {
   const credentialColumn = typeof payload.credential_column === 'string'
     ? payload.credential_column.trim()
     : ''
+  const columnProfiles = normalizeColumnProfiles(payload.column_profiles, csvColumns)
+  const dashboardFiltersFromProfiles = columnProfiles
+    .filter((profile) => profile.is_dashboard_filter)
+    .map((profile) => profile.source_name)
+  const demographicColumnsFromProfiles = columnProfiles
+    .filter((profile) => profile.is_demographic)
+    .map((profile) => profile.source_name)
+  const dashboardFilters = dashboardFiltersFromProfiles.length > 0
+    ? dashboardFiltersFromProfiles
+    : normalizeFilters(payload.dashboard_filters)
   const stratificationColumns = normalizeStratificationColumns(payload.stratification_columns)
+  const effectiveStratificationColumns = stratificationColumns.length > 0
+    ? stratificationColumns
+    : dashboardFilters
+  const demographicColumns = demographicColumnsFromProfiles.length > 0
+    ? demographicColumnsFromProfiles
+    : normalizeStratificationColumns(payload.demographic_columns)
+  const columnDisplayNames = normalizeColumnDisplayNames(payload.column_display_names, csvColumns)
   const columnMapping = normalizeColumnMapping(payload.column_mapping, csvColumns)
-  const dashboardFilters = normalizeFilters(payload.dashboard_filters)
-  const tcleText = (payload.tcle_text ?? '').trim() || null
+  const sanitizedTcleText = sanitizeRichTextHtml(payload.tcle_text ?? '')
+  const tcleText = isRichTextEmpty(sanitizedTcleText) ? null : sanitizedTcleText
   const managers = Array.isArray(payload.managers) ? payload.managers : []
 
   if (!name) {
@@ -236,7 +323,10 @@ export async function POST(request: NextRequest) {
   const config = {
     modules,
     dashboard_filters: dashboardFilters,
-    stratification_columns: stratificationColumns,
+    stratification_columns: effectiveStratificationColumns,
+    demographic_columns: demographicColumns,
+    column_display_names: columnDisplayNames,
+    column_profiles: columnProfiles,
     credential_column: credentialColumn || null,
     column_mapping: columnMapping,
     report: 'dynamic',

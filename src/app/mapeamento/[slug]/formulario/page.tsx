@@ -11,10 +11,15 @@ export default async function MappingFormularioPage({ params }: Readonly<Formula
   const cookieStore = await cookies()
   const collaboratorId = cookieStore.get('collaborator_id')?.value
   const collaboratorMappingSlug = cookieStore.get('collaborator_mapping_slug')?.value
+  const lgpdAccepted = cookieStore.get('collaborator_lgpd_accepted')?.value === '1'
 
   if (!collaboratorId || collaboratorMappingSlug !== slug) {
     redirect(`/mapeamento/${slug}/login`)
   }
 
-  return <IetrForm thankYouPath={`/mapeamento/${slug}/agradecimento`} />
+  if (!lgpdAccepted) {
+    redirect(`/mapeamento/${slug}/consentimento`)
+  }
+
+  return <IetrForm thankYouPath={`/mapeamento/${slug}/agradecimento`} mappingSlug={slug} />
 }

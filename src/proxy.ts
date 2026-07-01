@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const COLLABORATOR_PROTECTED = ['/formulario', '/agradecimento']
+const COLLABORATOR_PROTECTED = ['/formulario']
 const MANAGER_PROTECTED = ['/dashboard', '/admin']
 
 function extractMappingSlug(pathname: string): string | null {
@@ -13,7 +13,7 @@ export function proxy(request: NextRequest) {
 
   const mappingSlug = extractMappingSlug(pathname)
   const isMappingCollaboratorPath =
-    /^\/mapeamento\/[^/]+\/(formulario|agradecimento)(?:\/|$)/.test(pathname)
+    /^\/mapeamento\/[^/]+\/formulario(?:\/|$)/.test(pathname)
   const isMappingManagerPath = /^\/mapeamento\/[^/]+\/dashboard(?:\/|$)/.test(pathname)
 
   if (mappingSlug && isMappingCollaboratorPath) {
@@ -58,7 +58,6 @@ export function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     '/formulario/:path*',
-    '/agradecimento/:path*',
     '/dashboard/:path*',
     '/admin/:path*',
     '/mapeamento/:path*',

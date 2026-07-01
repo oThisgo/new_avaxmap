@@ -118,9 +118,19 @@ function getStratumKey(collab: CollabForStratum, stratum: string, excludePj: boo
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getAgeRange(raw: string | null): string {
   if (!raw) return 'Não informado'
-  let normalized = raw
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
-    const [d, m, y] = raw.split('/')
+  const trimmed = raw.trim()
+  if (/^\d{1,3}$/.test(trimmed)) {
+    const age = Number(trimmed)
+    if (!Number.isFinite(age) || age < 0 || age > 120) return 'Não informado'
+    if (age < 25) return 'Até 24'
+    if (age < 35) return '25–34'
+    if (age < 45) return '35–44'
+    if (age < 55) return '45–54'
+    return '55+'
+  }
+  let normalized = trimmed
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    const [d, m, y] = trimmed.split('/')
     normalized = `${y}-${m}-${d}`
   }
   const birth = new Date(normalized)

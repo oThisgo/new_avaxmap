@@ -2,7 +2,8 @@
 
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { BRAND_COLORS } from '@/lib/brand'
+import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
+import Image from 'next/image'
 
 export default function AgradecimentoPage() {
   const { theme } = useTheme()
@@ -21,13 +22,21 @@ export default function AgradecimentoPage() {
         <ThemeToggle />
       </div>
       <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 56px)' }}>
-        <div className="text-center rounded-2xl px-8 py-10" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <div className="w-full max-w-2xl text-center rounded-2xl px-8 py-10" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+          <div className="mx-auto mb-5 h-20 w-20 overflow-hidden rounded-full p-3 shadow-sm" style={{ backgroundColor: BRAND_COLORS.primary }}>
+            <Image src={BRAND_ASSETS.symbol} alt={BRAND_NAME} width={80} height={80} className="h-full w-full object-contain" />
+          </div>
+
           <p className="text-2xl font-semibold" style={{ color: T.text }}>
-            Obrigado pela sua participação!
+            Obrigado por participar da pesquisa
           </p>
-          <p className="text-sm mt-2" style={{ color: T.textMuted }}>
-            Sua resposta foi registrada com sucesso.
+          <p className="text-sm mt-3" style={{ color: T.textMuted }}>
+            Sua contribuição ajuda a construir um ambiente de trabalho mais seguro, saudável e humano para todas as pessoas.
           </p>
+
+          <div className="mt-6 rounded-xl px-4 py-3 text-sm" style={{ border: `1px solid ${T.border}`, backgroundColor: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2, color: T.textMuted }}>
+            Suas respostas foram registradas com sucesso e serão analisadas apenas de forma agregada, preservando anonimato e confidencialidade.
+          </div>
         </div>
       </div>
     </div>

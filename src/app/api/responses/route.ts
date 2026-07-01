@@ -6,6 +6,7 @@ import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
 import { encryptFieldOrNull } from '@/lib/security/crypto'
+import { normalizeMappingConfig } from '@/lib/mapping/config'
 
 const SUBMIT_WINDOW_MS = 60_000
 const SUBMIT_LIMIT = 6
@@ -44,22 +45,15 @@ function parseJsonBody(raw: unknown): SubmitBody | null {
   return body as SubmitBody
 }
 
-function validateRequiredSocioFields(socio: SubmitBody['socio']): string | null {
-  const requiredSocio = [
-    socio.birth_date,
-    socio.gender,
-    socio.race_color,
-    socio.marital_status,
-    socio.education_level,
-    socio.disability,
-    socio.remote_status,
-  ]
-
-  if (requiredSocio.some((v) => typeof v !== 'string' || !v.trim())) {
+function validateRequiredSocioFields(
+  socio: SubmitBody['socio'],
+  requiredKeys: Array<keyof SubmitBody['socio']>,
+): string | null {
+  if (requiredKeys.some((key) => typeof socio[key] !== 'string' || !(socio[key] as string).trim())) {
     return 'Campos sociodemográficos obrigatórios ausentes.'
   }
 
-  if (/^sim/i.test(socio.disability.trim()) && !socio.which_disability?.trim()) {
+  if (requiredKeys.includes('disability') && /^sim/i.test(socio.disability.trim()) && !socio.which_disability?.trim()) {
     return 'Informe o tipo de deficiência.'
   }
 
@@ -96,13 +90,16 @@ function getMissingCodes(answerMap: Record<string, string | null>, codes: string
 }
 
 function validateRequiredAnswers(
+  requiresHse: boolean,
   requiresIetr: boolean,
   hseAnswerMap: Record<string, string | null>,
   ietrAnswerMap: Record<string, string | null>,
 ): string | null {
-  const missingHseCodes = getMissingCodes(hseAnswerMap, HSE_CODES)
-  if (missingHseCodes.length > 0) {
-    return `Questões obrigatórias HSE sem resposta: ${missingHseCodes.join(', ')}`
+  if (requiresHse) {
+    const missingHseCodes = getMissingCodes(hseAnswerMap, HSE_CODES)
+    if (missingHseCodes.length > 0) {
+      return `Questões obrigatórias HSE sem resposta: ${missingHseCodes.join(', ')}`
+    }
   }
 
   if (!requiresIetr) return null
@@ -143,6 +140,14 @@ function clearCollaboratorCookie(response: NextResponse): NextResponse {
     maxAge: 0,
   })
 
+  response.cookies.set('collaborator_lgpd_accepted', '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  })
+
   return response
 }
 
@@ -164,8 +169,13 @@ async function saveOptionalFields(
 export async function POST(request: NextRequest) {
   const collaboratorId = request.cookies.get('collaborator_id')?.value
   const collaboratorMappingSlug = request.cookies.get('collaborator_mapping_slug')?.value
+  const lgpdAccepted = request.cookies.get('collaborator_lgpd_accepted')?.value === '1'
   if (!collaboratorId) {
     return NextResponse.json({ error: 'Sessão expirada. Faça login novamente.' }, { status: 401 })
+  }
+
+  if (!lgpdAccepted) {
+    return NextResponse.json({ error: 'Aceite LGPD obrigatório antes de responder a pesquisa.' }, { status: 403 })
   }
 
   const ip = getClientIp(request.headers)
@@ -190,12 +200,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Estrutura de submissão inválida.' }, { status: 400 })
   }
 
-  const socioValidationError = validateRequiredSocioFields(body.socio)
-  if (socioValidationError) {
-    return NextResponse.json({ error: socioValidationError }, { status: 400 })
-  }
-
-  const requiresIetr = !/^n[aã]o/i.test(body.socio.remote_status.trim())
+  let mappingConfig = normalizeMappingConfig(null)
 
   const hseAnswerMap = buildAnswerMap(HSE_CODES)
   const ietrAnswerMap = buildAnswerMap(IETR_CODES)
@@ -220,18 +225,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: ietrApplyError }, { status: 400 })
   }
 
-  const requiredAnswersError = validateRequiredAnswers(requiresIetr, hseAnswerMap, ietrAnswerMap)
-  if (requiredAnswersError) {
-    return NextResponse.json({ error: requiredAnswersError }, { status: 400 })
-  }
-
   const supabase = createServerClient()
 
   let mappingIdFromSlug: string | null = null
   if (collaboratorMappingSlug) {
     const { data: mapping } = await supabase
       .from('mappings')
-      .select('id, status')
+      .select('id, status, config')
       .eq('slug', collaboratorMappingSlug)
       .single()
 
@@ -240,6 +240,41 @@ export async function POST(request: NextRequest) {
     }
 
     mappingIdFromSlug = mapping.id
+    mappingConfig = normalizeMappingConfig(mapping.config)
+  }
+
+  const hasSocioModule = mappingConfig.modules.includes('sociodemografico')
+  const hasHseModule = mappingConfig.modules.includes('hse')
+  const hasIetrModule = mappingConfig.modules.includes('ietr')
+
+  const requiredSocioKeys: Array<keyof SubmitBody['socio']> = []
+  if (hasSocioModule) {
+    const hasBirthDateFromCsv = !!mappingConfig.column_mapping.birth_date || !!mappingConfig.column_mapping.age_range
+    const hasGenderFromCsv = !!mappingConfig.column_mapping.gender
+    const hasRaceFromCsv = !!mappingConfig.column_mapping.race_color
+    const hasMaritalFromCsv = !!mappingConfig.column_mapping.marital_status
+    const hasEducationFromCsv = !!mappingConfig.column_mapping.education_level
+    const hasDisabilityFromCsv = !!mappingConfig.column_mapping.disability
+
+    if (mappingConfig.demographic_columns.includes('age_range') && !hasBirthDateFromCsv) requiredSocioKeys.push('birth_date')
+    if (mappingConfig.demographic_columns.includes('gender') && !hasGenderFromCsv) requiredSocioKeys.push('gender')
+    if (mappingConfig.demographic_columns.includes('race_color') && !hasRaceFromCsv) requiredSocioKeys.push('race_color')
+    if (mappingConfig.demographic_columns.includes('marital_status') && !hasMaritalFromCsv) requiredSocioKeys.push('marital_status')
+    if (mappingConfig.demographic_columns.includes('education_level') && !hasEducationFromCsv) requiredSocioKeys.push('education_level')
+    if (mappingConfig.demographic_columns.includes('disability') && !hasDisabilityFromCsv) requiredSocioKeys.push('disability')
+    if (hasIetrModule) requiredSocioKeys.push('remote_status')
+  }
+
+  const socioValidationError = validateRequiredSocioFields(body.socio, requiredSocioKeys)
+  if (socioValidationError) {
+    return NextResponse.json({ error: socioValidationError }, { status: 400 })
+  }
+
+  const requiresIetr = hasIetrModule && (!hasSocioModule || !/^n[aã]o/i.test(body.socio.remote_status.trim()))
+
+  const requiredAnswersError = validateRequiredAnswers(hasHseModule, requiresIetr, hseAnswerMap, ietrAnswerMap)
+  if (requiredAnswersError) {
+    return NextResponse.json({ error: requiredAnswersError }, { status: 400 })
   }
 
   const collaboratorResult = await supabase
@@ -273,33 +308,33 @@ export async function POST(request: NextRequest) {
   }
 
   const answersJson = [
-    ...hseResult.answers.map((a) => ({
+    ...(hasHseModule ? hseResult.answers.map((a) => ({
       questionCode: a.questionCode,
       rawValue: a.rawValue,
       numericValue: a.numericValue,
       riskValue: a.riskValue,
-    })),
-    ...remoteResult.answers.map((a) => ({
+    })) : []),
+    ...(hasIetrModule ? remoteResult.answers.map((a) => ({
       questionCode: a.questionCode,
       rawValue: a.rawValue,
       numericValue: a.numericValue,
       riskValue: a.riskValue,
-    })),
+    })) : []),
   ]
 
-  const hseDomainsJson = hseResult.domains.map((d) => ({
+  const hseDomainsJson = hasHseModule ? hseResult.domains.map((d) => ({
     domain: d.domain,
     weight: d.weight,
     score: d.score,
     weightedScore: d.weightedScore,
-  }))
+  })) : []
 
-  const remoteDomainsJson = remoteResult.domains.map((d) => ({
+  const remoteDomainsJson = hasIetrModule ? remoteResult.domains.map((d) => ({
     domain: d.domain,
     weight: d.weight,
     score: d.score,
     weightedScore: d.weightedScore,
-  }))
+  })) : []
 
   const responseInsert = await supabase
     .from('responses')
@@ -309,10 +344,10 @@ export async function POST(request: NextRequest) {
       answers: answersJson,
       hse_domains: hseDomainsJson,
       remote_domains: remoteDomainsJson,
-      hse_score: hseResult.finalScore,
-      hse_class: hseResult.classification,
-      remote_score: remoteResult.finalScore,
-      remote_class: remoteResult.classification,
+      hse_score: hasHseModule ? hseResult.finalScore : null,
+      hse_class: hasHseModule ? hseResult.classification : null,
+      remote_score: hasIetrModule ? remoteResult.finalScore : null,
+      remote_class: hasIetrModule ? remoteResult.classification : null,
       job_observations: body.jobObservations?.trim() || null,
     })
     .select('id')
@@ -322,25 +357,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Falha ao salvar a resposta.' }, { status: 500 })
   }
 
+  const collaboratorUpdate: Record<string, unknown> = {
+    has_answered: true,
+  }
+
+  if (hasSocioModule) {
+    if (body.socio.birth_date?.trim()) collaboratorUpdate.birth_date = encryptFieldOrNull(body.socio.birth_date)
+    if (body.socio.gender?.trim()) collaboratorUpdate.gender = body.socio.gender
+    if (body.socio.race_color?.trim()) collaboratorUpdate.race_color = body.socio.race_color
+    if (body.socio.marital_status?.trim()) collaboratorUpdate.marital_status = encryptFieldOrNull(body.socio.marital_status)
+    if (body.socio.education_level?.trim()) collaboratorUpdate.education_level = encryptFieldOrNull(body.socio.education_level)
+    if (body.socio.disability?.trim()) collaboratorUpdate.disability = encryptFieldOrNull(body.socio.disability)
+    collaboratorUpdate.which_disability = body.socio.which_disability?.trim() || null
+  }
+
   const { error: coreUpdateError } = await supabase
     .from('collaborators')
-    .update({
-      has_answered: true,
-      birth_date: encryptFieldOrNull(body.socio.birth_date),
-      gender: body.socio.gender,
-      race_color: body.socio.race_color,
-      marital_status: encryptFieldOrNull(body.socio.marital_status),
-      education_level: encryptFieldOrNull(body.socio.education_level),
-      disability: encryptFieldOrNull(body.socio.disability),
-      which_disability: body.socio.which_disability?.trim() || null,
-    })
+    .update(collaboratorUpdate)
     .eq('id', collaborator.id)
 
   if (coreUpdateError) {
     console.error('[responses] erro ao atualizar has_answered', coreUpdateError.message)
   }
 
-  await saveOptionalFields(supabase, collaborator.id, body.socio.remote_status)
+  if (hasSocioModule) {
+    await saveOptionalFields(supabase, collaborator.id, body.socio.remote_status || (hasIetrModule ? 'Sim' : 'Não'))
+  }
 
   return clearCollaboratorCookie(NextResponse.json({ ok: true }))
 }
