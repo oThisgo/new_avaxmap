@@ -2,96 +2,40 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { motion, AnimatePresence } from 'motion/react'
 import type jsPDFType from 'jspdf'
 import OverviewTab from './tabs/OverviewTab'
 import DemographicsTab from './tabs/DemographicsTab'
 import HseTab from './tabs/HseTab'
 import RemoteTab from './tabs/RemoteTab'
 import InsightsTab from './tabs/InsightsTab'
-import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import ReportRiskModal from './ReportRiskModal'
 import { BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
-
-interface ThemeTokens {
-  surface: string
-  border: string
-  text: string
-  textMuted: string
-  textFaint: string
-  menuHover: string
-  menuBg: string
-}
+import { isMappingAdmin, isMappingSuperuser } from '@/lib/auth/roles'
+import { useThemeTokens } from '@/lib/theme'
+import { Select } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
 
 function FilterDropdown({
-  label, value, options, onChange, T,
+  label, value, options, onChange,
 }: {
   label: string
   value: string
   options: string[]
   onChange: (v: string) => void
-  T: ThemeTokens
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    if (open) document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
-
+  const T = useThemeTokens()
   return (
-    <div className="relative flex flex-col gap-1" ref={ref}>
+    <div className="flex flex-col gap-1">
       <span className="text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>{label}</span>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center justify-between gap-2 text-sm px-3 py-1.5 rounded-lg transition-all w-full sm:min-w-[150px]"
-        style={{
-          backgroundColor: T.surface,
-          border: `1px solid ${open ? BRAND_COLORS.primary : T.border}`,
-          color: value ? T.text : T.textMuted,
-        }}
-        onMouseEnter={(e) => { if (!open) e.currentTarget.style.borderColor = T.textMuted }}
-        onMouseLeave={(e) => { if (!open) e.currentTarget.style.borderColor = T.border }}
-      >
-        <span className="truncate max-w-[120px] sm:max-w-[160px]">{value || 'Todos'}</span>
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" style={{ opacity: 0.45, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
-          <path d="M6 8L1 3h10z" />
-        </svg>
-      </button>
-      {open && (
-        <div
-          className="absolute top-full left-0 mt-1 rounded-xl shadow-xl py-1 z-40"
-          style={{
-            backgroundColor: T.menuBg,
-            border: `1px solid ${T.border}`,
-            minWidth: '100%',
-            maxHeight: '260px',
-            overflowY: 'auto',
-          }}
-        >
-          {(['', ...options]).map((opt) => (
-            <button
-              key={opt || '__all__'}
-              onClick={() => { onChange(opt); setOpen(false) }}
-              className="w-full text-left px-4 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
-              style={{ color: opt === value ? BRAND_COLORS.primary : T.text, fontWeight: opt === value ? 600 : 400 }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-            >
-              <span className="truncate">{opt || 'Todos'}</span>
-              {opt === value && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND_COLORS.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+      <Select
+        className="w-full sm:min-w-[150px]"
+        value={value}
+        onChange={onChange}
+        placeholder="Todos"
+        options={[{ value: '', label: 'Todos' }, ...options.map((opt) => ({ value: opt, label: opt }))]}
+      />
     </div>
   )
 }
@@ -112,12 +56,14 @@ type ActiveFilters = Record<string, string>
 type DashboardRuntimeConfig = {
   modules: string[]
   demographic_columns: string[]
+  field_labels: Record<string, string>
 }
 
 interface ManagerDisplay {
   name: string
   email: string
   role: string
+  mapping_role?: string | null
   must_change_password?: boolean
   mapping_slug?: string | null
 }
@@ -127,24 +73,17 @@ export default function DashboardShell() {
   const pathname = usePathname()
   // Slug extraído da URL — síncrono, não depende de state ou cookie
   const slugFromPath = pathname?.match(/^\/mapeamento\/([^/]+)\/dashboard/)?.[1] ?? null
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-
+  const baseT = useThemeTokens()
+  const isDark = baseT.isDark
   const T = {
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-    inputBg: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    inputBorder: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    menuHover: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    clearBtn: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    clearBtnText: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    adminBorder: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    adminText: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    menuBg: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
+    ...baseT,
+    inputBorder: baseT.border,
+    menuHover: baseT.surface2,
+    clearBtn: baseT.surface2,
+    clearBtnText: baseT.textMuted,
+    adminBorder: baseT.border,
+    adminText: baseT.textMuted,
+    menuBg: baseT.surface,
   }
 
   const [tabs, setTabs] = useState<Array<{ id: TabId; label: string }>>(TABS as unknown as Array<{ id: TabId; label: string }>)
@@ -152,6 +91,7 @@ export default function DashboardShell() {
   const [dashboardConfig, setDashboardConfig] = useState<DashboardRuntimeConfig>({
     modules: ['sociodemografico', 'hse', 'ietr'],
     demographic_columns: ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
+    field_labels: {},
   })
   const [availableFilters, setAvailableFilters] = useState<string[]>(['area', 'role', 'employment_type', 'gender', 'race_color'])
   const [filterLabels, setFilterLabels] = useState<Record<string, string>>({
@@ -214,8 +154,11 @@ export default function DashboardShell() {
         const demographicColumns: string[] = Array.isArray(json?.config?.demographic_columns)
           ? json.config.demographic_columns
           : ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types']
+        const fieldLabels: Record<string, string> = json?.config?.field_labels && typeof json.config.field_labels === 'object'
+          ? json.config.field_labels
+          : {}
 
-        setDashboardConfig({ modules, demographic_columns: demographicColumns })
+        setDashboardConfig({ modules, demographic_columns: demographicColumns, field_labels: fieldLabels })
       })
       .catch(() => {})
   }, [])
@@ -433,6 +376,9 @@ export default function DashboardShell() {
     setFilters((prev) => Object.fromEntries(Object.keys(prev).map((key) => [key, ''])))
   }
 
+  const canSuperuser = !!managerDisplay && isMappingSuperuser(managerDisplay.role, managerDisplay.mapping_role ?? null)
+  const canAdmin = !!managerDisplay && isMappingAdmin(managerDisplay.role, managerDisplay.mapping_role ?? null)
+
   const activeCount = Object.values(filters).filter(Boolean).length
   const reportRiskFilters = {
     area: filters.area ?? '',
@@ -454,37 +400,48 @@ export default function DashboardShell() {
           <ThemeToggle />
 
           <div className="relative" ref={reportMenuRef}>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setReportMenuOpen((v) => !v)}
-              disabled={reportLoading}
-              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors"
-              style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText, opacity: reportLoading ? 0.6 : 1 }}
-              onMouseEnter={(e) => { if (!reportLoading) { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary } }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}
+              loading={reportLoading}
             >
               {reportLoading ? 'Gerando...' : 'Relatório'}
-            </button>
-            {reportMenuOpen && (
-              <div className="absolute right-0 mt-1 w-48 rounded-xl shadow-lg py-1 z-50" style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}>
-                <p className="px-4 pt-2 pb-1 text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Exportar Relatório de Adesão</p>
-                <button onClick={handleDownloadXLSX} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Baixar Excel (.xlsx)</button>
-                <button onClick={handleDownloadPDF} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Baixar PDF</button>
-                {managerDisplay?.role === 'superuser' && (
-                  <>
-                    <div style={{ margin: '6px 16px', borderTop: `1px solid ${T.border}` }} />
-                    <p className="px-4 pb-1 text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Superuser — Dados de Risco</p>
-                    <button onClick={handleDownloadRiskCSV} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Exportar Riscos (.csv)</button>
-                    <button onClick={() => { setReportMenuOpen(false); setReportRiskModalOpen(true) }} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Relatório de Risco (.pptx)</button>
-                  </>
-                )}
-              </div>
-            )}
+            </Button>
+            <AnimatePresence>
+              {reportMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.14, ease: 'easeOut' }}
+                  className="absolute right-0 mt-1 w-48 rounded-xl shadow-lg py-1 z-50"
+                  style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}
+                >
+                  <p className="px-4 pt-2 pb-1 text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Exportar Relatório de Adesão</p>
+                  <button onClick={handleDownloadXLSX} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Baixar Excel (.xlsx)</button>
+                  <button onClick={handleDownloadPDF} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Baixar PDF</button>
+                  {canSuperuser && (
+                    <>
+                      <div style={{ margin: '6px 16px', borderTop: `1px solid ${T.border}` }} />
+                      <p className="px-4 pb-1 text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Superuser — Dados de Risco</p>
+                      <button onClick={handleDownloadRiskCSV} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Exportar Riscos (.csv)</button>
+                      <button onClick={() => { setReportMenuOpen(false); setReportRiskModalOpen(true) }} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Relatório de Risco (.pptx)</button>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {activeCount > 0 && <button onClick={clearFilters} className="text-sm px-3 py-1.5 rounded-md transition-colors" style={{ backgroundColor: T.clearBtn, color: T.clearBtnText }}>Limpar filtros ({activeCount})</button>}
+          {activeCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              Limpar filtros ({activeCount})
+            </Button>
+          )}
 
-          {managerDisplay && (managerDisplay.role === 'superuser' || managerDisplay.role === 'admin') && <a href="/admin/upload" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Importar CSV</a>}
-          {managerDisplay && managerDisplay.role === 'superuser' && <a href="/admin/managers" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Gestores</a>}
+          {canAdmin && <a href="/admin/upload" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Importar CSV</a>}
+          {managerDisplay?.role === 'superuser' && <a href="/admin/managers" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Gestores</a>}
 
           {managerDisplay && (
             <div className="relative" ref={menuRef}>
@@ -492,16 +449,25 @@ export default function DashboardShell() {
                 <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}>{managerDisplay.name.charAt(0).toUpperCase() || '?'}</span>
                 <span className="font-medium">{managerDisplay.name || managerDisplay.email}</span>
               </button>
-              {menuOpen && (
-                <div className="absolute right-0 mt-1 w-56 rounded-xl shadow-lg py-1 z-50" style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}>
-                  <div className="px-4 py-3 border-b" style={{ borderColor: T.border }}>
-                    <p className="text-sm font-semibold" style={{ color: T.text }}>{managerDisplay.name}</p>
-                    <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>{managerDisplay.email}</p>
-                  </div>
-                  <button onClick={handleGoToResetPassword} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Redefinir senha</button>
-                  <button onClick={handleLogout} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: BRAND_COLORS.danger }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${BRAND_COLORS.danger}15` }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Sair</button>
-                </div>
-              )}
+              <AnimatePresence>
+                {menuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                    transition={{ duration: 0.14, ease: 'easeOut' }}
+                    className="absolute right-0 mt-1 w-56 rounded-xl shadow-lg py-1 z-50"
+                    style={{ backgroundColor: T.menuBg, border: `1px solid ${T.border}` }}
+                  >
+                    <div className="px-4 py-3 border-b" style={{ borderColor: T.border }}>
+                      <p className="text-sm font-semibold" style={{ color: T.text }}>{managerDisplay.name}</p>
+                      <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>{managerDisplay.email}</p>
+                    </div>
+                    <button onClick={handleGoToResetPassword} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: T.text }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.menuHover }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Redefinir senha</button>
+                    <button onClick={handleLogout} className="w-full text-left px-4 py-2.5 text-sm transition-colors" style={{ color: BRAND_COLORS.danger }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${BRAND_COLORS.danger}15` }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}>Sair</button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
         </div>
@@ -527,7 +493,7 @@ export default function DashboardShell() {
             {activeCount > 0 && <button onClick={() => { clearFilters(); setMobileMenuOpen(false) }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.clearBtnText }}>Limpar filtros ({activeCount})</button>}
             <button onClick={() => { setMobileMenuOpen(false); handleDownloadXLSX() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }}>Relatório Excel</button>
             <button onClick={() => { setMobileMenuOpen(false); handleDownloadPDF() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }}>{reportLoading ? 'Gerando PDF...' : 'Relatório PDF'}</button>
-            {(managerDisplay.role === 'superuser' || managerDisplay.role === 'admin') && <a href="/admin/upload" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Importar CSV</a>}
+            {canAdmin && <a href="/admin/upload" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Importar CSV</a>}
             {managerDisplay.role === 'superuser' && <a href="/admin/managers" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Gestores</a>}
             <button onClick={handleGoToResetPassword} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.textMuted }}>Redefinir senha</button>
             <button onClick={() => { setMobileMenuOpen(false); handleLogout() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: BRAND_COLORS.danger }}>Sair</button>
@@ -544,7 +510,6 @@ export default function DashboardShell() {
               value={filters[key] ?? ''}
               options={filterOptions[key] ?? []}
               onChange={(v) => handleFilter(key, v)}
-              T={T}
             />
           )
         })}
@@ -562,11 +527,21 @@ export default function DashboardShell() {
       </div>
 
       <main className="p-4 sm:p-6 max-w-full overflow-x-hidden">
-        {activeTab === 'overview' && <OverviewTab query={buildQuery()} />}
-        {activeTab === 'demographics' && <DemographicsTab query={buildQuery()} chartKeys={dashboardConfig.demographic_columns} />}
-        {activeTab === 'hse' && <HseTab query={buildQuery()} />}
-        {activeTab === 'remote' && <RemoteTab query={buildQuery()} />}
-        {activeTab === 'insights' && <InsightsTab query={buildQuery()} isSuperuser={managerDisplay?.role === 'superuser'} />}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            {activeTab === 'overview' && <OverviewTab query={buildQuery()} />}
+            {activeTab === 'demographics' && <DemographicsTab query={buildQuery()} chartKeys={dashboardConfig.demographic_columns} chartLabels={dashboardConfig.field_labels} />}
+            {activeTab === 'hse' && <HseTab query={buildQuery()} />}
+            {activeTab === 'remote' && <RemoteTab query={buildQuery()} />}
+            {activeTab === 'insights' && <InsightsTab query={buildQuery()} isSuperuser={canSuperuser} />}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {reportRiskModalOpen && <ReportRiskModal filters={reportRiskFilters} theme={T} isDark={isDark} onClose={() => setReportRiskModalOpen(false)} />}

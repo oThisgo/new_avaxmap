@@ -5,8 +5,10 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
 } from 'recharts'
-import { useTheme } from '@/components/ThemeProvider'
 import { BRAND_COLORS } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Alert } from '@/components/ui/alert'
 
 interface TooltipProps {
   active?: boolean
@@ -60,12 +62,7 @@ interface HseData {
 }
 
 function DomainTooltip({ active, payload, label }: TooltipProps) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const surface = isDark ? '#1A1A1A' : '#FFFFFF'
-  const border = isDark ? '#2A2A2A' : '#E5E5E5'
-  const text = isDark ? '#FFFFFF' : '#111111'
-  const textMuted = isDark ? '#A3A3A3' : '#737373'
+  const { surface, border, text, textMuted } = useThemeTokens()
   if (!active || !payload?.length) return null
   const d = payload[0].payload
   const color = CLASS_COLORS[d.classification] ?? '#A3A3A3'
@@ -82,19 +79,8 @@ function DomainTooltip({ active, payload, label }: TooltipProps) {
 }
 
 export default function HseTab({ query }: { query: string }) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const T = {
-    surface: isDark ? '#1A1A1A' : '#FFFFFF',
-    surface2: isDark ? '#222222' : '#F5F5F5',
-    border: isDark ? '#2A2A2A' : '#E5E5E5',
-    text: isDark ? '#FFFFFF' : '#111111',
-    textMuted: isDark ? '#A3A3A3' : '#737373',
-    textFaint: isDark ? '#525252' : '#A3A3A3',
-    axisX: isDark ? '#525252' : '#A3A3A3',
-    axisY: isDark ? '#A3A3A3' : '#737373',
-    cursor: isDark ? '#2A2A2A' : '#F0F0F0',
-  }
+  const baseT = useThemeTokens()
+  const T = { ...baseT, axisX: baseT.textFaint, axisY: baseT.textMuted, cursor: baseT.surface2 }
   const [data, setData] = useState<HseData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -127,8 +113,16 @@ export default function HseTab({ query }: { query: string }) {
     }
   }, [query])
 
-  if (loading) return <p className="text-sm" style={{ color: T.textMuted }}>Carregando...</p>
-  if (error || !data) return <p className="text-sm" style={{ color: '#EF4444' }}>Erro ao carregar dados.</p>
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-20 rounded-xl" />
+        <Skeleton className="h-56 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    )
+  }
+  if (error || !data) return <Alert>Erro ao carregar dados.</Alert>
 
   return (
     <div className="flex flex-col gap-6">
@@ -170,7 +164,7 @@ export default function HseTab({ query }: { query: string }) {
           <ResponsiveContainer width="100%" height={Math.max(200, data.domains.length * 44)}>
             <BarChart data={data.domains} layout="vertical" margin={{ left: 8, right: 50 }}>
               <XAxis type="number" domain={[0, 4]} ticks={[0, 1, 1.5, 2, 2.5, 3, 4]} tick={{ fill: T.axisX, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={180} tick={{ fill: T.axisY, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={130} tick={{ fill: T.axisY, fontSize: 10 }} axisLine={false} tickLine={false} />
               <Tooltip
                 content={<DomainTooltip />}
                 cursor={{ fill: T.cursor }}
@@ -195,40 +189,66 @@ export default function HseTab({ query }: { query: string }) {
         ) : (
           <div className="flex flex-col gap-4">
             {Object.entries(questionRiskByDomain).map(([domain, questions]) => (
-              <div key={domain} className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.border}` }}>
+              <div key={domain} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
                 <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: T.textMuted, backgroundColor: T.surface2 }}>
                   {domain}
                 </div>
-                <table className="w-full text-sm">
-                  <thead style={{ backgroundColor: T.surface2 }}>
-                    <tr>
-                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Código</th>
-                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Enunciado</th>
-                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Score médio</th>
-                      <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Classificação</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {questions.map((q) => {
-                      const badge = classificationBadge(q.classification)
-                      return (
-                        <tr key={q.question_code} style={{ borderTop: `1px solid ${T.border}` }}>
-                          <td className="px-3 py-2 font-mono text-xs" style={{ color: T.textMuted }}>{q.question_code}</td>
-                          <td className="px-3 py-2" style={{ color: T.text }}>{q.question_text}</td>
-                          <td className="px-3 py-2 font-semibold" style={{ color: T.text }}>{q.avg_score.toFixed(2)}</td>
-                          <td className="px-3 py-2">
-                            <span
-                              className="text-xs px-2 py-1 rounded-full"
-                              style={{ backgroundColor: badge.bg, color: badge.text }}
-                            >
-                              {q.classification}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+
+                {/* Tabela — telas médias/grandes */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead style={{ backgroundColor: T.surface2 }}>
+                      <tr>
+                        <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Código</th>
+                        <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Enunciado</th>
+                        <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Score médio</th>
+                        <th className="text-left px-3 py-2" style={{ color: T.textMuted }}>Classificação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {questions.map((q) => {
+                        const badge = classificationBadge(q.classification)
+                        return (
+                          <tr key={q.question_code} style={{ borderTop: `1px solid ${T.border}` }}>
+                            <td className="px-3 py-2 font-mono text-xs" style={{ color: T.textMuted }}>{q.question_code}</td>
+                            <td className="px-3 py-2" style={{ color: T.text }}>{q.question_text}</td>
+                            <td className="px-3 py-2 font-semibold" style={{ color: T.text }}>{q.avg_score.toFixed(2)}</td>
+                            <td className="px-3 py-2">
+                              <span
+                                className="text-xs px-2 py-1 rounded-full"
+                                style={{ backgroundColor: badge.bg, color: badge.text }}
+                              >
+                                {q.classification}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Cards — mobile (a tabela fica ilegível/cortada em telas estreitas) */}
+                <div className="md:hidden divide-y" style={{ borderColor: T.border }}>
+                  {questions.map((q) => {
+                    const badge = classificationBadge(q.classification)
+                    return (
+                      <div key={q.question_code} className="px-3 py-3" style={{ borderTopColor: T.border }}>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-mono text-xs" style={{ color: T.textMuted }}>{q.question_code}</span>
+                          <span
+                            className="text-xs px-2 py-1 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: badge.bg, color: badge.text }}
+                          >
+                            {q.classification}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm" style={{ color: T.text }}>{q.question_text}</p>
+                        <p className="mt-1 text-xs" style={{ color: T.textMuted }}>Score médio: <span className="font-semibold" style={{ color: T.text }}>{q.avg_score.toFixed(2)}</span></p>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             ))}
           </div>

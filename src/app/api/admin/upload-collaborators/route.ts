@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getManagerFromSession, isAdmin } from '@/lib/auth/manager'
-import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
+import { getManagerFromSession, isMappingAdmin } from '@/lib/auth/manager'
+import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
+import { normalizeMappingConfig } from '@/lib/mapping/config'
+import { isCustomFieldKey, customFieldSlug, slugifyColumnKey } from '@/lib/mapping/column-key'
 import { hashCpf, encryptFieldOrNull } from '@/lib/security/crypto'
 
 type MappingConfig = {
@@ -97,9 +99,6 @@ export async function POST(request: NextRequest) {
   if (!manager) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
   }
-  if (!isAdmin(manager.role)) {
-    return NextResponse.json({ error: 'Acesso negado. Apenas administradores podem importar colaboradores.' }, { status: 403 })
-  }
 
   let formData: FormData
   try {
@@ -148,6 +147,11 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingId)
+  if (!isMappingAdmin(manager.role, mappingRole)) {
+    return NextResponse.json({ error: 'Acesso negado. Apenas administradores podem importar colaboradores.' }, { status: 403 })
+  }
+
   const { data: mappingConfigResult } = await supabase
     .from('mappings')
     .select('config')
@@ -155,6 +159,12 @@ export async function POST(request: NextRequest) {
     .single()
 
   const mappingConfig = (mappingConfigResult?.config ?? {}) as MappingConfig
+  const normalizedConfig = normalizeMappingConfig(mappingConfigResult?.config)
+  const customFieldSlugsToImport = new Set(
+    [...normalizedConfig.dashboard_filters, ...normalizedConfig.demographic_columns]
+      .filter(isCustomFieldKey)
+      .map(customFieldSlug),
+  )
 
   const text = await file.text()
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
@@ -206,6 +216,20 @@ export async function POST(request: NextRequest) {
     ?? stratifications.find((column) => /vinculo|contrato|regime/.test(normalizeLabel(column)))
     ?? null
 
+  // Colunas customizadas escolhidas como filtro/demográfico na criação do mapeamento
+  // (qualquer coluna que não corresponda a um campo canônico reconhecido acima).
+  // Nunca inclui credencial/nome/e-mail: essas já viram campos dedicados criptografados
+  // e ficam bloqueadas na UI de criação, então nunca chegam aqui como "customizadas".
+  const reservedColumns = new Set(
+    [credentialColumn, fullNameColumn, emailColumn].filter((c): c is string => !!c),
+  )
+  const extraFieldColumnBySlug = new Map<string, string>()
+  for (const header of headers) {
+    if (reservedColumns.has(header)) continue
+    const slug = slugifyColumnKey(header)
+    if (customFieldSlugsToImport.has(slug)) extraFieldColumnBySlug.set(slug, header)
+  }
+
   // Pula o header
   const dataLines = lines.slice(1)
 
@@ -224,6 +248,7 @@ export async function POST(request: NextRequest) {
     marital_status: string | null
     disability: string | null
     which_disability: string | null
+    extra_fields: Record<string, string | null>
   }
 
   const rows: CollaboratorRow[] = []
@@ -252,6 +277,11 @@ export async function POST(request: NextRequest) {
     const disabilityCol = readValue(cols, headerIndexes, disabilityTypeColumn ?? disabilityColumn)
     const hasDisability = disabilityCol.toLowerCase() !== 'sem deficiência' && disabilityCol !== ''
 
+    const extraFields: Record<string, string | null> = {}
+    for (const [slug, header] of extraFieldColumnBySlug) {
+      extraFields[slug] = readValue(cols, headerIndexes, header) || null
+    }
+
     rows.push({
       mapping_id: mappingId,
       cpf: hashCpf(normalizedCredential),
@@ -267,6 +297,7 @@ export async function POST(request: NextRequest) {
       marital_status: encryptFieldOrNull(readValue(cols, headerIndexes, maritalStatusColumn)),
       disability: encryptFieldOrNull(hasDisability ? 'sim' : 'não'),
       which_disability: hasDisability ? disabilityCol : null,
+      extra_fields: extraFields,
     })
   }
 

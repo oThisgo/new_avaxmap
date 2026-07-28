@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getManagerFromSession, isSuperuser } from '@/lib/auth/manager'
-import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
+import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
+import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
+import { applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
 import { buildRiskReport, ReportPayload, StratumRow, IetrStratumRow } from '@/lib/reports/risk-pptx'
 
@@ -331,9 +332,6 @@ export async function POST(request: NextRequest) {
   const sessionToken = request.cookies.get('manager_session')?.value
   const manager = await getManagerFromSession(sessionToken)
   if (!manager) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
-  if (!isSuperuser(manager.role)) {
-    return NextResponse.json({ error: 'Apenas superuser pode gerar relatórios.' }, { status: 403 })
-  }
 
   // Parse body
   let body: ReportBody
@@ -357,14 +355,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
+  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingScope.mappingId as string)
+  if (!isMappingSuperuser(manager.role, mappingRole)) {
+    return NextResponse.json({ error: 'Apenas superuser pode gerar relatórios.' }, { status: 403 })
+  }
+
   // 1. Fetch collaborators
   let collabQuery = supabase
     .from('collaborators')
     .select('id, area, role, gender, race_color, employment_type, birth_date, education_level, marital_status, disability, which_disability, has_answered')
     .eq('mapping_id', mappingScope.mappingId)
-  for (const [k, v] of Object.entries(filters)) {
-    collabQuery = collabQuery.eq(k, v)
-  }
+  collabQuery = applyCollaboratorFilters(collabQuery, filters)
   const { data: collabData, error: collabErr } = await collabQuery
   if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
 

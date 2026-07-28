@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@/components/ThemeProvider'
-import { BRAND_COLORS } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { AlertPresence } from '@/components/ui/alert'
 
 interface SubmitLikeEvent {
   preventDefault: () => void
@@ -14,16 +17,7 @@ export default function ResetManagerPasswordPage() {
   const [firstAccess, setFirstAccess] = useState(false)
   const [nextPath, setNextPath] = useState('/dashboard/client')
 
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const T = {
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    inputBg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightSurface2,
-  }
+  const T = useThemeTokens()
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -110,7 +104,7 @@ export default function ResetManagerPasswordPage() {
 
   return (
     <div className="min-h-screen px-4 py-8" style={{ backgroundColor: T.bg, color: T.text }}>
-      <div className="max-w-md mx-auto rounded-2xl p-6" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+      <Card className="max-w-md mx-auto p-6">
         <h1 className="text-xl font-semibold mb-1">Redefinir senha</h1>
         <p className="text-sm mb-6" style={{ color: T.textMuted }}>
           {firstAccess
@@ -121,12 +115,10 @@ export default function ResetManagerPasswordPage() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm" style={{ color: T.textMuted }}>Senha atual</label>
-            <input
+            <Input
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full rounded-lg px-4 py-3 text-sm outline-none"
-              style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
               disabled={loading}
               required
             />
@@ -134,12 +126,10 @@ export default function ResetManagerPasswordPage() {
 
           <div className="flex flex-col gap-1.5">
             <label className="text-sm" style={{ color: T.textMuted }}>Nova senha</label>
-            <input
+            <Input
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full rounded-lg px-4 py-3 text-sm outline-none"
-              style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
               disabled={loading}
               minLength={8}
               required
@@ -148,40 +138,24 @@ export default function ResetManagerPasswordPage() {
 
           <div className="flex flex-col gap-1.5">
             <label className="text-sm" style={{ color: T.textMuted }}>Confirmar nova senha</label>
-            <input
+            <Input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-lg px-4 py-3 text-sm outline-none"
-              style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
               disabled={loading}
               minLength={8}
               required
             />
           </div>
 
-          {error && (
-            <p className="text-sm rounded-lg px-4 py-2.5" style={{ backgroundColor: '#EF444422', border: '1px solid #EF444440', color: '#EF4444' }}>
-              {error}
-            </p>
-          )}
+          <AlertPresence show={!!error}>{error}</AlertPresence>
+          <AlertPresence show={!!success} tone="success">{success}</AlertPresence>
 
-          {success && (
-            <p className="text-sm rounded-lg px-4 py-2.5" style={{ backgroundColor: '#22C55E22', border: '1px solid #22C55E40', color: '#22C55E' }}>
-              {success}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg py-3 text-sm font-semibold transition-colors disabled:opacity-50"
-            style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
-          >
+          <Button type="submit" size="lg" loading={loading} className="w-full">
             {loading ? 'Salvando...' : 'Salvar nova senha'}
-          </button>
+          </Button>
         </form>
-      </div>
+      </Card>
     </div>
   )
 }

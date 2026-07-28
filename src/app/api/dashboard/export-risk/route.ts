@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getManagerFromSession, isSuperuser } from '@/lib/auth/manager'
-import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
+import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
+import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
+import { normalizeMappingConfig } from '@/lib/mapping/config'
+import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
 import { IETR_CODES, IETR_DOMAIN_WEIGHTS } from '@/lib/analytics/ietr-definition'
 
@@ -151,23 +153,11 @@ function buildCsvRow(idx: number, collab: CollabData, resp: ResponseData | undef
   return cells.join(';')
 }
 
-function buildFilters(params: URLSearchParams) {
-  const filters: Record<string, string> = {}
-  for (const key of ['area', 'role', 'gender', 'race_color', 'employment_type']) {
-    const v = params.get(key)
-    if (v) filters[key] = v
-  }
-  return filters
-}
-
 // ─── Handler ──────────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const sessionToken = request.cookies.get('manager_session')?.value
   const manager = await getManagerFromSession(sessionToken)
   if (!manager) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
-  if (!isSuperuser(manager.role)) {
-    return NextResponse.json({ error: 'Apenas superuser pode exportar dados de risco.' }, { status: 403 })
-  }
 
   const supabase = createServerClient()
   const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
@@ -175,15 +165,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const filters = buildFilters(request.nextUrl.searchParams)
+  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingScope.mappingId as string)
+  if (!isMappingSuperuser(manager.role, mappingRole)) {
+    return NextResponse.json({ error: 'Apenas superuser pode exportar dados de risco.' }, { status: 403 })
+  }
+
+  const { data: mapping } = await supabase
+    .from('mappings')
+    .select('config')
+    .eq('id', mappingScope.mappingId)
+    .single()
+
+  const mappingConfig = normalizeMappingConfig(mapping?.config)
+  const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
   let collabQuery = supabase
     .from('collaborators')
     .select('id, area, role, gender, race_color, employment_type, birth_date')
     .eq('mapping_id', mappingScope.mappingId)
-  for (const [k, v] of Object.entries(filters)) {
-    collabQuery = collabQuery.eq(k, v)
-  }
+  collabQuery = applyCollaboratorFilters(collabQuery, filters)
 
   const { data: collabs, error: collabErr } = await collabQuery
   if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })

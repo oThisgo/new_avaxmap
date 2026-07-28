@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
 
   const normalizedEmail = email.toLowerCase().trim()
   const normalizedMappingSlug = mapping_slug?.trim().toLowerCase() || null
+  let mappingRole: string | null = null
 
   const supabase = createServerClient()
   const { data: manager, error } = await supabase
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     const { data: access, error: accessError } = await supabase
       .from('mapping_managers')
-      .select('id')
+      .select('id, role')
       .eq('mapping_id', mapping.id)
       .eq('manager_id', manager.id)
       .single()
@@ -104,6 +105,8 @@ export async function POST(request: NextRequest) {
     if (accessError || !access) {
       return NextResponse.json({ error: 'Sem acesso a este mapeamento.' }, { status: 403 })
     }
+
+    mappingRole = access.role ?? null
   }
 
   // Migração progressiva: hash legado -> bcrypt após login bem-sucedido.
@@ -148,6 +151,7 @@ export async function POST(request: NextRequest) {
       name: manager.name ?? '',
       email: normalizedEmail,
       role: manager.role ?? 'manager',
+      mapping_role: mappingRole,
       must_change_password: unwrapped.temporary,
       mapping_slug: normalizedMappingSlug,
     }),

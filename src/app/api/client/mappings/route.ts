@@ -5,6 +5,9 @@ import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/password'
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'crypto'
+import { normalizeQuestionOverrides } from '@/lib/mapping/question-overrides'
+import { HSE_CODES } from '@/lib/analytics/hse-definition'
+import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 
 type MappingPayload = {
   name?: string
@@ -26,10 +29,14 @@ type MappingPayload = {
   column_mapping?: Record<string, string>
   tcle_text?: string
   dashboard_filters?: string[]
+  hse_question_order?: string[]
+  hse_question_text_overrides?: Record<string, string>
+  ietr_question_order?: string[]
+  ietr_question_text_overrides?: Record<string, string>
   managers?: Array<{
     name?: string
     email?: string
-    role?: 'owner' | 'manager' | 'analyst' | 'viewer'
+    role?: 'owner' | 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
   }>
 }
 
@@ -271,25 +278,41 @@ export async function POST(request: NextRequest) {
   const credentialColumn = typeof payload.credential_column === 'string'
     ? payload.credential_column.trim()
     : ''
-  const columnProfiles = normalizeColumnProfiles(payload.column_profiles, csvColumns)
+  const columnMapping = normalizeColumnMapping(payload.column_mapping, csvColumns)
+  // Colunas já reservadas para campos sensíveis (nome, CPF/matrícula, e-mail, credencial)
+  // nunca podem virar filtro/dado demográfico — a UI de criação já bloqueia isso (colunas
+  // "locked"), isto é defesa em profundidade contra um payload que tente contornar a UI.
+  const sensitiveColumns = new Set(
+    [columnMapping.full_name, columnMapping.cpf, columnMapping.employee_code, columnMapping.email, credentialColumn]
+      .filter((c): c is string => !!c),
+  )
+  const rawColumnProfiles = normalizeColumnProfiles(payload.column_profiles, csvColumns)
+  const columnProfiles = rawColumnProfiles.map((profile) => (
+    sensitiveColumns.has(profile.source_name)
+      ? { ...profile, is_dashboard_filter: false, is_demographic: false }
+      : profile
+  ))
   const dashboardFiltersFromProfiles = columnProfiles
     .filter((profile) => profile.is_dashboard_filter)
     .map((profile) => profile.source_name)
   const demographicColumnsFromProfiles = columnProfiles
     .filter((profile) => profile.is_demographic)
     .map((profile) => profile.source_name)
-  const dashboardFilters = dashboardFiltersFromProfiles.length > 0
+  const dashboardFilters = (dashboardFiltersFromProfiles.length > 0
     ? dashboardFiltersFromProfiles
     : normalizeFilters(payload.dashboard_filters)
+  ).filter((column) => !sensitiveColumns.has(column))
   const stratificationColumns = normalizeStratificationColumns(payload.stratification_columns)
   const effectiveStratificationColumns = stratificationColumns.length > 0
     ? stratificationColumns
     : dashboardFilters
-  const demographicColumns = demographicColumnsFromProfiles.length > 0
+  const demographicColumns = (demographicColumnsFromProfiles.length > 0
     ? demographicColumnsFromProfiles
     : normalizeStratificationColumns(payload.demographic_columns)
+  ).filter((column) => !sensitiveColumns.has(column))
   const columnDisplayNames = normalizeColumnDisplayNames(payload.column_display_names, csvColumns)
-  const columnMapping = normalizeColumnMapping(payload.column_mapping, csvColumns)
+  const hseOverrides = normalizeQuestionOverrides(payload.hse_question_order, payload.hse_question_text_overrides, HSE_CODES)
+  const ietrOverrides = normalizeQuestionOverrides(payload.ietr_question_order, payload.ietr_question_text_overrides, IETR_CODES)
   const sanitizedTcleText = sanitizeRichTextHtml(payload.tcle_text ?? '')
   const tcleText = isRichTextEmpty(sanitizedTcleText) ? null : sanitizedTcleText
   const managers = Array.isArray(payload.managers) ? payload.managers : []
@@ -329,6 +352,10 @@ export async function POST(request: NextRequest) {
     column_profiles: columnProfiles,
     credential_column: credentialColumn || null,
     column_mapping: columnMapping,
+    hse_question_order: hseOverrides.order,
+    hse_question_text_overrides: hseOverrides.text,
+    ietr_question_order: ietrOverrides.order,
+    ietr_question_text_overrides: ietrOverrides.text,
     report: 'dynamic',
   }
 

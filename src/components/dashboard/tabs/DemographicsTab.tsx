@@ -11,17 +11,9 @@ import { BRAND_COLORS } from '@/lib/brand'
 const PALETTE = [BRAND_COLORS.primary, BRAND_COLORS.secondary, '#5F82F6', BRAND_COLORS.mint, BRAND_COLORS.peach, BRAND_COLORS.pink, BRAND_COLORS.lilac, BRAND_COLORS.slate]
 
 interface DistItem { name: string; value: number }
-interface DemoData {
-  gender: DistItem[]
-  age_range: DistItem[]
-  race_color: DistItem[]
-  education_level: DistItem[]
-  marital_status: DistItem[]
-  disability: DistItem[]
-  disability_types: DistItem[]
-}
+type DemoData = Record<string, DistItem[]>
 
-const CHART_LABELS: Record<string, string> = {
+const DEFAULT_CHART_LABELS: Record<string, string> = {
   gender: 'Gênero',
   age_range: 'Faixa Etária',
   race_color: 'Raça / Cor',
@@ -108,7 +100,7 @@ function DonutChart({ title, data }: { title: string; data: DistItem[] }) {
   )
 }
 
-export default function DemographicsTab({ query, chartKeys }: { query: string; chartKeys?: string[] }) {
+export default function DemographicsTab({ query, chartKeys, chartLabels }: { query: string; chartKeys?: string[]; chartLabels?: Record<string, string> }) {
   const [data, setData] = useState<DemoData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -127,26 +119,28 @@ export default function DemographicsTab({ query, chartKeys }: { query: string; c
     ? chartKeys.filter((key) => key in data)
     : ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types']
 
+  const labelFor = (key: string) => chartLabels?.[key] ?? DEFAULT_CHART_LABELS[key] ?? key
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {orderedKeys.map((key) => {
-        const chartData = data[key as keyof DemoData] as DistItem[]
+        const chartData = data[key]
         if (!Array.isArray(chartData)) return null
 
         if (key === 'disability_types') {
           if (chartData.length === 0) return null
           return (
             <div key={key} className="md:col-span-2">
-              <HBarChart title={CHART_LABELS[key] ?? key} data={chartData} />
+              <HBarChart title={labelFor(key)} data={chartData} />
             </div>
           )
         }
 
         if (key === 'gender' || key === 'disability') {
-          return <DonutChart key={key} title={CHART_LABELS[key] ?? key} data={chartData} />
+          return <DonutChart key={key} title={labelFor(key)} data={chartData} />
         }
 
-        return <HBarChart key={key} title={CHART_LABELS[key] ?? key} data={chartData} />
+        return <HBarChart key={key} title={labelFor(key)} data={chartData} />
       })}
     </div>
   )

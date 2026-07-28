@@ -5,8 +5,11 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
-import { useTheme } from '@/components/ThemeProvider'
+import { motion } from 'motion/react'
 import { BRAND_COLORS } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Alert } from '@/components/ui/alert'
 
 const ORG_PALETTE = [
   BRAND_COLORS.primary, BRAND_COLORS.secondary, '#5F82F6', BRAND_COLORS.mint,
@@ -28,31 +31,25 @@ interface OverviewData {
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const surface = isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface
-  const border = isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight
-  const text = isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark
-  const textMuted = isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight
-  const textFaint = isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight
+  const { surface, border, text, textMuted, textFaint } = useThemeTokens()
 
   return (
-    <div className="rounded-xl p-5 flex flex-col gap-1" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      className="rounded-xl p-5 flex flex-col gap-1"
+      style={{ backgroundColor: surface, border: `1px solid ${border}` }}
+    >
       <span className="text-xs uppercase tracking-wide" style={{ color: textMuted }}>{label}</span>
       <span className="text-3xl font-bold" style={{ color: text }}>{value}</span>
       {sub && <span className="text-xs" style={{ color: textFaint }}>{sub}</span>}
-    </div>
+    </motion.div>
   )
 }
 
 function OrgDonut({ title, data }: { title: string; data: DistItem[] }) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const surface = isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface
-  const border = isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight
-  const text = isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark
-  const textMuted = isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight
-  const textFaint = isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight
+  const { surface, border, text, textMuted, textFaint } = useThemeTokens()
   const total = data.reduce((s, d) => s + d.value, 0)
   const top = data.slice(0, 8)
 
@@ -102,16 +99,8 @@ function fmtDay(date: string) {
 }
 
 export default function OverviewTab({ query }: { query: string }) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const T = {
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-    grid: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-  }
+  const baseT = useThemeTokens()
+  const T = { ...baseT, grid: baseT.border }
   const [data, setData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -123,8 +112,17 @@ export default function OverviewTab({ query }: { query: string }) {
       .catch(() => setLoading(false))
   }, [query])
 
-  if (loading) return <p className="text-sm" style={{ color: T.textMuted }}>Carregando...</p>
-  if (!data) return <p className="text-sm" style={{ color: BRAND_COLORS.danger }}>Erro ao carregar dados.</p>
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+        </div>
+        <Skeleton className="h-56 rounded-xl" />
+      </div>
+    )
+  }
+  if (!data) return <Alert>Erro ao carregar dados.</Alert>
 
   return (
     <div className="flex flex-col gap-6">

@@ -2,9 +2,11 @@
 
 import { useState, useRef, DragEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_COLORS } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Button } from '@/components/ui/button'
+import { AlertPresence } from '@/components/ui/alert'
 
 interface UploadResult {
   ok: boolean
@@ -16,17 +18,7 @@ interface UploadResult {
 
 export default function UploadCollaboratorsPage() {
   const router = useRouter()
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const T = {
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-  }
+  const T = useThemeTokens()
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -166,23 +158,14 @@ export default function UploadCollaboratorsPage() {
         </div>
 
         {/* Botão */}
-        <button
-          onClick={handleUpload}
-          disabled={!file || loading}
-          className="mt-6 w-full rounded-lg py-3 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
-          onMouseEnter={(e) => { if (file && !loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-        >
+        <Button onClick={handleUpload} disabled={!file || loading} loading={loading} size="lg" className="mt-6 w-full">
           {loading ? 'Importando...' : 'Importar colaboradores'}
-        </button>
+        </Button>
 
         {/* Erro */}
-        {error && (
-          <div className="mt-4 rounded-xl p-4 text-sm" style={{ backgroundColor: '#EF444415', border: '1px solid #EF444440', color: '#EF4444' }}>
-            {error}
-          </div>
-        )}
+        <div className="mt-4">
+          <AlertPresence show={!!error}>{error}</AlertPresence>
+        </div>
 
         {/* Resultado */}
         {result && (

@@ -3,12 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { useTheme } from '@/components/ThemeProvider'
+import { motion, AnimatePresence } from 'motion/react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
-import { HSE_QUESTIONS, HSE_SCALE_OPTIONS } from '@/lib/analytics/hse-definition'
-import { IETR_QUESTIONS, IETR_SCALE_OPTIONS, type IetrQuestionDefinition } from '@/lib/analytics/ietr-definition'
-import type { DemographicChartKey, MappingModuleKey } from '@/lib/mapping/config'
+import { useThemeTokens, type ThemeTokens } from '@/lib/theme'
+import { Select, type SelectOption } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { AlertPresence } from '@/components/ui/alert'
+import { Textarea } from '@/components/ui/input'
+import { HSE_QUESTIONS, HSE_SCALE_OPTIONS, HSE_CODES, type HseQuestionDefinition } from '@/lib/analytics/hse-definition'
+import { IETR_QUESTIONS, IETR_SCALE_OPTIONS, IETR_CODES, type IetrQuestionDefinition } from '@/lib/analytics/ietr-definition'
+import type { MappingModuleKey } from '@/lib/mapping/config'
+import { applyQuestionOverrides } from '@/lib/mapping/question-overrides'
 
 type AnswerMap = Record<string, string>
 
@@ -26,21 +32,8 @@ interface SocioData {
   remote_status: string
 }
 
-interface FormThemeTokens {
-  bg: string
-  surface: string
-  surface2: string
-  border: string
-  text: string
-  textMuted: string
-  textFaint: string
-  inputBg: string
-}
-
-interface DropdownOption {
-  value: string
-  label: string
-}
+type FormThemeTokens = ThemeTokens
+type DropdownOption = SelectOption
 
 interface SubmitLikeEvent {
   preventDefault: () => void
@@ -65,28 +58,6 @@ interface CollapsibleModuleProps {
   onToggle: (moduleId: ModuleId) => void
   theme: FormThemeTokens
   children: React.ReactNode
-}
-
-const DOMAIN_ORDER = [
-  'Demandas',
-  'Controle',
-  'Suporte',
-  'Comunica\u00E7\u00E3o',
-  'Papel',
-  'Limites',
-  'Ambiente',
-  'Produtividade',
-] as const
-
-const DOMAIN_INTRO: Record<(typeof DOMAIN_ORDER)[number], string> = {
-  Demandas: 'Carga e ritmo de trabalho no remoto.',
-  Controle: 'Autonomia para organizar e executar atividades.',
-  Suporte: 'Recursos e apoio para o trabalho remoto.',
-  ['Comunica\u00E7\u00E3o']: 'Qualidade de alinhamento com a equipe.',
-  Papel: 'Clareza de responsabilidades e expectativas.',
-  Limites: 'Separação saudável entre trabalho e vida pessoal.',
-  Ambiente: 'Condições físicas e interferências no local de trabalho.',
-  Produtividade: 'Capacidade de manter entrega e foco no remoto.',
 }
 
 const GENDER_OPTIONS: readonly DropdownOption[] = [
@@ -135,28 +106,6 @@ const REMOTE_OPTIONS: readonly DropdownOption[] = [
 
 const MOBILE_QUESTIONS_PER_PAGE = 4
 
-function groupQuestionsByDomain() {
-  const grouped = new Map<string, IetrQuestionDefinition[]>()
-  for (const domain of DOMAIN_ORDER) grouped.set(domain, [])
-  for (const question of IETR_QUESTIONS) {
-    const current = grouped.get(question.domain)
-    if (current) current.push(question)
-  }
-  return grouped
-}
-
-function getIetrQuestionNumber(
-  domain: (typeof DOMAIN_ORDER)[number],
-  index: number,
-  groupedQuestions: Map<string, IetrQuestionDefinition[]>,
-): number {
-  const previousCount = DOMAIN_ORDER
-    .slice(0, DOMAIN_ORDER.indexOf(domain))
-    .reduce((sum, d) => sum + (groupedQuestions.get(d)?.length ?? 0), 0)
-
-  return index + 1 + previousCount
-}
-
 function ScaleOptionsGrid({
   options,
   questionCode,
@@ -170,12 +119,15 @@ function ScaleOptionsGrid({
       {options.map((option) => {
         const active = selected === option
         return (
-          <button
+          <motion.button
             key={`${questionCode}-${option}`}
             type="button"
             disabled={disabled}
             aria-pressed={active}
-            className="block rounded-lg border px-3 py-2 text-center text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60"
+            whileTap={disabled ? undefined : { scale: 0.94 }}
+            animate={active ? { scale: [1, 1.05, 1] } : { scale: 1 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="block min-h-[44px] rounded-lg border px-3 py-2.5 text-center text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => onSelect(questionCode, option)}
             onMouseEnter={(e) => {
               if (disabled || active) return
@@ -199,121 +151,10 @@ function ScaleOptionsGrid({
               color: active ? BRAND_COLORS.primary : theme.text,
             }}
           >
-            <span
-              className="block"
-              style={{
-                transform: active ? 'translateY(-1px)' : 'translateY(0)',
-                transition: 'transform 0.15s ease',
-              }}
-            >
-              {option}
-            </span>
-          </button>
+            <span className="block">{option}</span>
+          </motion.button>
         )
       })}
-    </div>
-  )
-}
-
-function CustomDropdown({
-  value,
-  options,
-  placeholder,
-  disabled,
-  theme,
-  onChange,
-}: Readonly<{
-  value: string
-  options: readonly DropdownOption[]
-  placeholder: string
-  disabled: boolean
-  theme: FormThemeTokens
-  onChange: (value: string) => void
-}>) {
-  const [open, setOpen] = useState(false)
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 })
-  const ref = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const selected = options.find((opt) => opt.value === value)
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    if (open) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
-
-  const handleOpenDropdown = () => {
-    if (buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect()
-      setDropdownPos({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: rect.width,
-      })
-    }
-    setOpen(true)
-  }
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        ref={buttonRef}
-        type="button"
-        disabled={disabled}
-        onClick={handleOpenDropdown}
-        className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
-        style={{
-          backgroundColor: theme.surface,
-          border: `1px solid ${open ? BRAND_COLORS.primary : theme.border}`,
-          color: selected ? theme.text : theme.textMuted,
-        }}
-        onMouseEnter={(e) => { if (!open && !disabled) e.currentTarget.style.borderColor = theme.textMuted }}
-        onMouseLeave={(e) => { if (!open) e.currentTarget.style.borderColor = theme.border }}
-        onFocus={(e) => { if (!disabled) e.currentTarget.style.borderColor = BRAND_COLORS.primary }}
-        onBlur={(e) => { if (!open) e.currentTarget.style.borderColor = theme.border }}
-      >
-        <span className="truncate text-left">{selected?.label ?? placeholder}</span>
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" style={{ opacity: 0.45, flexShrink: 0, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
-          <path d="M6 8L1 3h10z" />
-        </svg>
-      </button>
-
-      {open && !disabled && (
-        <div
-          className="fixed max-h-[260px] overflow-y-auto rounded-xl py-1 shadow-xl z-50"
-          style={{
-            backgroundColor: theme.surface,
-            border: `1px solid ${theme.border}`,
-            top: `${dropdownPos.top}px`,
-            left: `${dropdownPos.left}px`,
-            width: `${dropdownPos.width}px`,
-          }}
-        >
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => {
-                onChange(opt.value)
-                setOpen(false)
-              }}
-              className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors"
-              style={{ color: opt.value === value ? BRAND_COLORS.primary : theme.text, fontWeight: opt.value === value ? 600 : 400 }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = theme.surface2 }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-            >
-              <span className="truncate">{opt.label}</span>
-              {opt.value === value && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND_COLORS.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -387,28 +228,19 @@ interface IetrFormProps {
 
 type MappingRuntimeConfig = {
   modules: MappingModuleKey[]
-  demographic_columns: DemographicChartKey[]
+  demographic_columns: string[]
   column_mapping: Record<string, string>
   tcle_text: string | null
+  hse_question_order: string[]
+  hse_question_text_overrides: Record<string, string>
+  ietr_question_order: string[]
+  ietr_question_text_overrides: Record<string, string>
 }
 
 export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Readonly<IetrFormProps>) {
   const router = useRouter()
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-
-  const T: FormThemeTokens = {
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-    inputBg: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-  }
-
-  const groupedQuestions = useMemo(() => groupQuestionsByDomain(), [])
+  const { isDark, ...T } = useThemeTokens()
+  const formTopRef = useRef<HTMLDivElement>(null)
 
   const [isMobile, setIsMobile] = useState(false)
   const [openModules, setOpenModules] = useState<Record<ModuleId, boolean>>({
@@ -442,23 +274,45 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     demographic_columns: ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
     column_mapping: {},
     tcle_text: null,
+    hse_question_order: HSE_CODES,
+    hse_question_text_overrides: {},
+    ietr_question_order: IETR_CODES,
+    ietr_question_text_overrides: {},
   })
+
+  const hseQuestions = useMemo(
+    () => applyQuestionOverrides<HseQuestionDefinition>(HSE_QUESTIONS, {
+      order: mappingConfig.hse_question_order,
+      text: mappingConfig.hse_question_text_overrides,
+    }),
+    [mappingConfig.hse_question_order, mappingConfig.hse_question_text_overrides],
+  )
+  const ietrQuestions = useMemo(
+    () => applyQuestionOverrides<IetrQuestionDefinition>(IETR_QUESTIONS, {
+      order: mappingConfig.ietr_question_order,
+      text: mappingConfig.ietr_question_text_overrides,
+    }),
+    [mappingConfig.ietr_question_order, mappingConfig.ietr_question_text_overrides],
+  )
 
   const hasSocioModule = mappingConfig.modules.includes('sociodemografico')
   const hasHseModule = mappingConfig.modules.includes('hse')
   const hasIetrModule = mappingConfig.modules.includes('ietr')
 
   const requiresIetr = hasIetrModule && (!hasSocioModule || !/^n[aã]o/i.test(socio.remote_status.trim()))
-  const effectiveIetrQuestions = requiresIetr ? IETR_QUESTIONS : []
+  const effectiveIetrQuestions = useMemo(
+    () => (requiresIetr ? ietrQuestions : []),
+    [requiresIetr, ietrQuestions],
+  )
 
-  const totalQuestions = HSE_QUESTIONS.length + effectiveIetrQuestions.length
+  const totalQuestions = hseQuestions.length + effectiveIetrQuestions.length
   const answeredCount = Object.keys(hseAnswers).length + Object.keys(answers).filter((key) => effectiveIetrQuestions.some((q) => q.code === key)).length
   const completionPct = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 100
 
-  const unansweredHse = hasHseModule ? HSE_QUESTIONS.filter((q) => !hseAnswers[q.code]) : []
+  const unansweredHse = hasHseModule ? hseQuestions.filter((q) => !hseAnswers[q.code]) : []
   const unansweredIetr = effectiveIetrQuestions.filter((q) => !answers[q.code])
 
-  const hsePages = useMemo(() => chunkBy(HSE_QUESTIONS, MOBILE_QUESTIONS_PER_PAGE), [])
+  const hsePages = useMemo(() => chunkBy(hseQuestions, MOBILE_QUESTIONS_PER_PAGE), [hseQuestions])
   const ietrPages = useMemo(() => chunkBy(effectiveIetrQuestions, MOBILE_QUESTIONS_PER_PAGE), [effectiveIetrQuestions])
 
   const activeMobilePages = mobileModule === 'hse' ? hsePages : ietrPages
@@ -514,6 +368,18 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
           tcle_text: typeof json.mapping?.tcle_text === 'string' && json.mapping.tcle_text.trim().length > 0
             ? json.mapping.tcle_text
             : null,
+          hse_question_order: Array.isArray(json.config.hse_question_order) && json.config.hse_question_order.length > 0
+            ? json.config.hse_question_order
+            : HSE_CODES,
+          hse_question_text_overrides: json.config.hse_question_text_overrides && typeof json.config.hse_question_text_overrides === 'object'
+            ? json.config.hse_question_text_overrides
+            : {},
+          ietr_question_order: Array.isArray(json.config.ietr_question_order) && json.config.ietr_question_order.length > 0
+            ? json.config.ietr_question_order
+            : IETR_CODES,
+          ietr_question_text_overrides: json.config.ietr_question_text_overrides && typeof json.config.ietr_question_text_overrides === 'object'
+            ? json.config.ietr_question_text_overrides
+            : {},
         })
       })
       .catch(() => {})
@@ -531,7 +397,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     return !!mappingConfig.column_mapping[field]
   }
 
-  function shouldShowDemographicField(field: DemographicChartKey): boolean {
+  function shouldShowDemographicField(field: string): boolean {
     return mappingConfig.demographic_columns.includes(field) && !isFieldPrefilledByCsv(field)
   }
 
@@ -585,19 +451,22 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       ].some(Boolean)
 
       if (requiredMissing) {
-        setError('Preencha os campos sociodemográficos obrigatórios para este mapeamento.')
+        setOpenModules((prev) => ({ ...prev, socio: true }))
+        reportError('Preencha os campos sociodemográficos obrigatórios para este mapeamento.')
         return
       }
     }
 
     if (/^sim/i.test(socio.disability.trim()) && !socio.which_disability.trim()) {
-      setError('Informe qual deficiência para continuar.')
+      setOpenModules((prev) => ({ ...prev, socio: true }))
+      reportError('Informe qual deficiência para continuar.')
       return
     }
 
     const unansweredTotal = unansweredHse.length + unansweredIetr.length
     if (unansweredTotal > 0) {
-      setError(`Responda todas as questões obrigatórias antes de enviar. Faltam ${unansweredTotal}.`)
+      goToFirstUnanswered()
+      reportError(`Responda todas as questões obrigatórias antes de enviar. Faltam ${unansweredTotal}.`)
       return
     }
 
@@ -618,10 +487,10 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       const payload = {
         socio: payloadSocio,
         hseAnswers: hasHseModule
-          ? HSE_QUESTIONS.map((q) => ({ questionCode: q.code, rawValue: hseAnswers[q.code] }))
+          ? hseQuestions.map((q) => ({ questionCode: q.code, rawValue: hseAnswers[q.code] }))
           : [],
         ietrAnswers: (hasIetrModule && requiresIetr)
-          ? IETR_QUESTIONS.map((q) => ({ questionCode: q.code, rawValue: answers[q.code] }))
+          ? ietrQuestions.map((q) => ({ questionCode: q.code, rawValue: answers[q.code] }))
           : [],
         jobObservations: jobObservations.trim() || null,
       }
@@ -635,15 +504,40 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error ?? 'Não foi possível enviar suas respostas.')
+        reportError(data.error ?? 'Não foi possível enviar suas respostas.')
         return
       }
 
       router.push(thankYouPath)
     } catch {
-      setError('Erro de conexão. Tente novamente em instantes.')
+      reportError('Erro de conexão. Tente novamente em instantes.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  function reportError(message: string) {
+    setError(message)
+    requestAnimationFrame(() => formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  function goToFirstUnanswered() {
+    if (unansweredHse.length > 0) {
+      setOpenModules((prev) => ({ ...prev, hse: true }))
+      if (isMobile) {
+        const idx = hseQuestions.findIndex((q) => q.code === unansweredHse[0].code)
+        setMobileModule('hse')
+        setMobilePage(Math.max(0, Math.floor(idx / MOBILE_QUESTIONS_PER_PAGE)))
+      }
+      return
+    }
+    if (unansweredIetr.length > 0) {
+      setOpenModules((prev) => ({ ...prev, ietr: true }))
+      if (isMobile) {
+        const idx = effectiveIetrQuestions.findIndex((q) => q.code === unansweredIetr[0].code)
+        setMobileModule('ietr')
+        setMobilePage(Math.max(0, Math.floor(idx / MOBILE_QUESTIONS_PER_PAGE)))
+      }
     }
   }
 
@@ -681,60 +575,55 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
         <label className="text-sm">
           <span className="mb-1.5 block" style={{ color: T.textMuted }}>Gênero *</span>
-          <CustomDropdown
+          <Select
             value={socio.gender}
             options={GENDER_OPTIONS}
             placeholder="Selecione"
             disabled={isSubmitting}
-            theme={T}
             onChange={(value) => setSocioField('gender', value)}
           />
         </label>
 
         <label className="text-sm">
           <span className="mb-1.5 block" style={{ color: T.textMuted }}>Raça/Cor *</span>
-          <CustomDropdown
+          <Select
             value={socio.race_color}
             options={RACE_OPTIONS}
             placeholder="Selecione"
             disabled={isSubmitting}
-            theme={T}
             onChange={(value) => setSocioField('race_color', value)}
           />
         </label>
 
         <label className="text-sm">
           <span className="mb-1.5 block" style={{ color: T.textMuted }}>Estado civil *</span>
-          <CustomDropdown
+          <Select
             value={socio.marital_status}
             options={MARITAL_OPTIONS}
             placeholder="Selecione"
             disabled={isSubmitting}
-            theme={T}
             onChange={(value) => setSocioField('marital_status', value)}
           />
         </label>
 
         <label className="text-sm">
           <span className="mb-1.5 block" style={{ color: T.textMuted }}>Escolaridade *</span>
-          <CustomDropdown
+          <Select
             value={socio.education_level}
             options={EDUCATION_OPTIONS}
             placeholder="Selecione"
             disabled={isSubmitting}
-            theme={T}
             onChange={(value) => setSocioField('education_level', value)}
           />
         </label>
 
         <label className="text-sm">
           <span className="mb-1.5 block" style={{ color: T.textMuted }}>Possui deficiência? *</span>
-          <CustomDropdown
+          <Select
             value={socio.disability}
             options={DISABILITY_OPTIONS}
             placeholder="Selecione"
             disabled={isSubmitting}
-            theme={T}
             onChange={(value) => setSocioField('disability', value)}
           />
         </label>
@@ -760,12 +649,11 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
         <label className="text-sm sm:col-span-2">
           <span className="mb-1.5 block" style={{ color: T.textMuted }}>Você trabalha remotamente? *</span>
-          <CustomDropdown
+          <Select
             value={socio.remote_status}
             options={REMOTE_OPTIONS}
             placeholder="Selecione"
             disabled={isSubmitting}
-            theme={T}
             onChange={(value) => setSocioField('remote_status', value)}
           />
         </label>
@@ -808,7 +696,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
           theme={T}
         >
           <div className="space-y-6">
-            {HSE_QUESTIONS.map((question) => renderQuestionCard(question.code, question.text, HSE_SCALE_OPTIONS, hseAnswers[question.code], setHseAnswer))}
+            {hseQuestions.map((question) => renderQuestionCard(question.code, question.text, HSE_SCALE_OPTIONS, hseAnswers[question.code], setHseAnswer))}
           </div>
         </CollapsibleModule>
 
@@ -828,7 +716,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
           {requiresIetr && (
             <div className="space-y-6">
-              {IETR_QUESTIONS.map((question, index) =>
+              {ietrQuestions.map((question, index) =>
                 renderQuestionCard(String(index + 1).padStart(2, '0'), question.text, IETR_SCALE_OPTIONS, answers[question.code], (_, value) => setAnswer(question.code, value))
               )}
             </div>
@@ -854,18 +742,21 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       <div className="space-y-4">
         {mobileModule === 'hse'
           ? activeMobilePage.map((question) => {
-              const h = question as (typeof HSE_QUESTIONS)[number]
+              const h = question as HseQuestionDefinition
               return renderQuestionCard(h.code, h.text, HSE_SCALE_OPTIONS, hseAnswers[h.code], setHseAnswer)
             })
           : activeMobilePage.map((question) => {
               const q = question as IetrQuestionDefinition
-              const idx = IETR_QUESTIONS.findIndex((x) => x.code === q.code)
+              const idx = ietrQuestions.findIndex((x) => x.code === q.code)
               const num = String(idx + 1).padStart(2, '0')
               return renderQuestionCard(num, q.text, IETR_SCALE_OPTIONS, answers[q.code], (_, value) => setAnswer(q.code, value))
             })}
       </div>
     )
   }
+
+  const hseShare = totalQuestions > 0 ? (hseQuestions.length / totalQuestions) * 100 : 0
+  const showMilestone = hasHseModule && requiresIetr && effectiveIetrQuestions.length > 0
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: T.bg, color: T.text }}>
@@ -875,13 +766,26 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
             <span>Progresso geral</span>
             <span>{completionPct}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: T.surface2 }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${completionPct}%`, backgroundColor: BRAND_COLORS.primary }} />
+          <div className="relative h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: T.surface2 }}>
+            <motion.div
+              className="h-full rounded-full"
+              style={{ backgroundColor: BRAND_COLORS.primary }}
+              initial={false}
+              animate={{ width: `${completionPct}%` }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            />
+            {showMilestone && (
+              <span
+                className="absolute top-0 h-full w-px"
+                style={{ left: `${hseShare}%`, backgroundColor: T.bg, opacity: 0.6 }}
+                title="Início do módulo IETR"
+              />
+            )}
           </div>
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-5xl px-4 pb-48 pt-16 sm:px-6 lg:px-8">
+      <div ref={formTopRef} className="mx-auto w-full max-w-5xl px-4 pb-48 pt-16 sm:px-6 lg:px-8">
         <div className="mb-4 flex justify-end">
           <ThemeToggle />
         </div>
@@ -954,7 +858,17 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
                   <span>Página {activeMobilePages.length === 0 ? 1 : mobilePage + 1} de {Math.max(activeMobilePages.length, 1)}</span>
                 </div>
 
-                {renderMobileQuestionCard()}
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`${mobileModule}-${mobilePage}`}
+                    initial={{ opacity: 0, x: 16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -16 }}
+                    transition={{ duration: 0.2, ease: 'easeOut' }}
+                  >
+                    {renderMobileQuestionCard()}
+                  </motion.div>
+                </AnimatePresence>
 
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <button
@@ -984,43 +898,32 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
           )}
 
           <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
-            <label htmlFor="job_observations" className="mb-2 block text-sm font-medium" style={{ color: T.text }}>
-              Observações sobre o trabalho remoto (opcional)
-            </label>
-            <textarea
+            <div className="mb-2 flex items-center justify-between">
+              <label htmlFor="job_observations" className="block text-sm font-medium" style={{ color: T.text }}>
+                Observações sobre o trabalho remoto (opcional)
+              </label>
+              <span className="text-xs" style={{ color: T.textFaint }}>{jobObservations.length}/1500</span>
+            </div>
+            <Textarea
               id="job_observations"
               value={jobObservations}
               onChange={(e) => setJobObservations(e.target.value)}
               rows={4}
               maxLength={1500}
               disabled={isSubmitting}
-              className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-all"
-              style={fieldStyle}
               placeholder="Se quiser, descreva pontos que não apareceram nas questões acima."
-              onMouseEnter={handleFieldMouseEnter}
-              onMouseLeave={handleFieldMouseLeave}
-              onFocus={handleFieldFocus}
-              onBlur={handleFieldBlur}
             />
           </section>
 
-          {error && <p className="rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</p>}
+          <AlertPresence show={!!error}>{error}</AlertPresence>
         </form>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-40" style={{ borderTop: `1px solid ${T.border}`, backgroundColor: isDark ? 'rgba(17,17,17,0.95)' : 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)' }}>
         <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 lg:px-8">
-          <button
-            type="submit"
-            form="ietr-form"
-            disabled={isSubmitting}
-            className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ backgroundColor: BRAND_COLORS.primary }}
-            onMouseEnter={(e) => { if (!isSubmitting) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-          >
+          <Button type="submit" form="ietr-form" size="lg" loading={isSubmitting} className="w-full">
             {isSubmitting ? 'Enviando respostas...' : 'Enviar respostas'}
-          </button>
+          </Button>
           <p className="mt-2 text-center text-xs" style={{ color: T.textFaint }}>As respostas são analisadas apenas de forma agregada.</p>
         </div>
       </div>

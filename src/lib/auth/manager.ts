@@ -1,5 +1,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 
+export { isAdmin, isSuperuser, isMappingAdmin, isMappingSuperuser } from './roles'
+
 const SESSION_MAX_AGE_MS = 60 * 60 * 8 * 1000
 const SESSION_CLOCK_SKEW_MS = 60 * 1000
 const TEMP_PASSWORD_PREFIX = 'temp$'
@@ -52,12 +54,4 @@ export async function getManagerFromSession(
   } catch {
     return null
   }
-}
-
-export function isAdmin(role: string): boolean {
-  return role === 'superuser' || role === 'admin'
-}
-
-export function isSuperuser(role: string): boolean {
-  return role === 'superuser'
 }

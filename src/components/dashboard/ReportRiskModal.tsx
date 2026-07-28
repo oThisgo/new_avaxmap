@@ -1,6 +1,8 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { motion } from 'motion/react'
+import { BRAND_COLORS } from '@/lib/brand'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ActiveFilters {
@@ -135,10 +137,14 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
   return (
     <>
       {/* Backdrop */}
-      <div
+      <motion.div
         role="presentation"
         onClick={onClose}
         onKeyDown={e => { if (e.key === 'Escape') onClose() }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
         style={{
           position:        'fixed',
           inset:           0,
@@ -149,12 +155,16 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
       />
 
       {/* Modal */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: '-46%' }}
+        animate={{ opacity: 1, scale: 1, y: '-50%' }}
+        exit={{ opacity: 0, scale: 0.96, y: '-46%' }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
         style={{
           position:        'fixed',
           top:             '50%',
           left:            '50%',
-          transform:       'translate(-50%, -50%)',
+          x:               '-50%',
           width:           '100%',
           maxWidth:        560,
           maxHeight:       '90vh',
@@ -172,7 +182,7 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
               {/* Presentation icon */}
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#29B6F6' : '#1565C0'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND_COLORS.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                 <line x1="8" y1="21" x2="16" y2="21" />
                 <line x1="12" y1="17" x2="12" y2="21" />
@@ -202,11 +212,11 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
               marginBottom:    20,
               padding:         '10px 14px',
               borderRadius:    8,
-              backgroundColor: isDark ? '#1A2A3A' : '#EBF5FB',
-              border:          `1px solid ${isDark ? '#1565C020' : '#29B6F640'}`,
+              backgroundColor: `${BRAND_COLORS.primary}18`,
+              border:          `1px solid ${BRAND_COLORS.primary}40`,
             }}
           >
-            <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 600, color: isDark ? '#29B6F6' : '#1565C0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 600, color: BRAND_COLORS.primary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Filtros ativos
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -217,7 +227,7 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
                     fontSize:        12,
                     padding:         '2px 8px',
                     borderRadius:    999,
-                    backgroundColor: isDark ? '#0D1B2A' : '#FFFFFF',
+                    backgroundColor: T.surface,
                     border:          `1px solid ${T.border}`,
                     color:           T.text,
                   }}
@@ -356,9 +366,9 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
               marginTop:       16,
               padding:         '10px 14px',
               borderRadius:    8,
-              backgroundColor: isDark ? '#2D0A0A' : '#FFEBEE',
-              border:          `1px solid #EF9A9A`,
-              color:           '#C62828',
+              backgroundColor: `${BRAND_COLORS.danger}1a`,
+              border:          `1px solid ${BRAND_COLORS.danger}40`,
+              color:           BRAND_COLORS.danger,
               fontSize:        13,
             }}
           >
@@ -393,7 +403,8 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
               padding:         '9px 20px',
               borderRadius:    8,
               border:          'none',
-              backgroundColor: loading || !clientName.trim() ? (isDark ? '#1B3A6B' : '#90CAF9') : '#1565C0',
+              backgroundColor: BRAND_COLORS.primary,
+              opacity:         loading || !clientName.trim() ? 0.5 : 1,
               color:           '#FFFFFF',
               fontSize:        14,
               fontWeight:      600,
@@ -420,7 +431,7 @@ export default function ReportRiskModal({ filters, theme: T, isDark, onClose }: 
             )}
           </button>
         </div>
-      </div>
+      </motion.div>
     </>
   )
 }

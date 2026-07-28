@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
-
-function buildFilters(params: URLSearchParams) {
-  const filters: Record<string, string> = {}
-  for (const key of ['area', 'role', 'gender', 'race_color', 'employment_type']) {
-    const v = params.get(key)
-    if (v) filters[key] = v
-  }
-  return filters
-}
+import { normalizeMappingConfig } from '@/lib/mapping/config'
+import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 
 export async function GET(request: NextRequest) {
   const session = request.cookies.get('manager_session')?.value
@@ -21,16 +14,22 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServerClient()
-  const filters = buildFilters(request.nextUrl.searchParams)
+
+  const { data: mapping } = await supabase
+    .from('mappings')
+    .select('config')
+    .eq('id', mappingScope.mappingId)
+    .single()
+
+  const mappingConfig = normalizeMappingConfig(mapping?.config)
+  const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
   // Todos os colaboradores com filtros (para total esperado e distribuições)
   let collabQuery = supabase
     .from('collaborators')
     .select('id, area, role, employment_type')
     .eq('mapping_id', mappingScope.mappingId)
-  for (const [k, v] of Object.entries(filters)) {
-    collabQuery = collabQuery.eq(k, v)
-  }
+  collabQuery = applyCollaboratorFilters(collabQuery, filters)
   const { data: collabs, error: collabErr } = await collabQuery
   if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
 
@@ -44,9 +43,7 @@ export async function GET(request: NextRequest) {
     .select('id, area, role, employment_type')
     .eq('mapping_id', mappingScope.mappingId)
     .eq('has_answered', true)
-  for (const [k, v] of Object.entries(filters)) {
-    answeredQuery = answeredQuery.eq(k, v)
-  }
+  answeredQuery = applyCollaboratorFilters(answeredQuery, filters)
   const { data: answeredCollabs } = await answeredQuery
   const answered = answeredCollabs ?? []
 

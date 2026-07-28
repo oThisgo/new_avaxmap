@@ -74,3 +74,23 @@ export async function getMappingScopeContext(
     mappingSlug,
   }
 }
+
+/**
+ * Papel de um gestor em um mapeamento específico (mapping_managers.role), usado
+ * junto com isMappingAdmin/isMappingSuperuser (src/lib/auth/manager.ts) para
+ * conceder permissões restritas àquele mapeamento em vez de globalmente.
+ */
+export async function getMappingManagerRole(
+  supabase: ReturnType<typeof createServerClient>,
+  managerId: string,
+  mappingId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('mapping_managers')
+    .select('role')
+    .eq('mapping_id', mappingId)
+    .eq('manager_id', managerId)
+    .maybeSingle()
+
+  return data?.role ?? null
+}

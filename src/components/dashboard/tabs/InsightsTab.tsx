@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useTheme } from '@/components/ThemeProvider'
+import { useThemeTokens } from '@/lib/theme'
 
 interface InsightsMeta {
   total_collaborators: number
@@ -332,18 +332,8 @@ function InsightsEmptyState({ isSuperuser, isDark, T }: Readonly<{
 }
 
 export default function InsightsTab({ query, isSuperuser }: Readonly<{ query: string; isSuperuser: boolean }>) {
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-
-  const T = {
-    surface: isDark ? '#161616' : '#FFFFFF',
-    surfaceHover: isDark ? '#1C1C1C' : '#F8F8FB',
-    border: isDark ? '#272727' : '#E4E4E7',
-    text: isDark ? '#F1F1F1' : '#111111',
-    textMuted: isDark ? '#9B9B9B' : '#555555',
-    skeleton: isDark ? '#222222' : '#EBEBEB',
-    skeletonShine: isDark ? '#2C2C2C' : '#F5F5F5',
-  }
+  const T = useThemeTokens()
+  const isDark = T.isDark
   const [data, setData] = useState<InsightsData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

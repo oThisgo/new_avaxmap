@@ -3,9 +3,14 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { useTheme } from '@/components/ThemeProvider'
+import { motion } from 'motion/react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { AlertPresence } from '@/components/ui/alert'
 
 interface SubmitLikeEvent {
   preventDefault: () => void
@@ -13,16 +18,7 @@ interface SubmitLikeEvent {
 
 export default function ManagerLoginPage() {
   const router = useRouter()
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const T = {
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    inputBg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightSurface2,
-  }
+  const T = useThemeTokens()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -61,22 +57,19 @@ export default function ManagerLoginPage() {
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: T.bg }}
-    >
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: T.bg }}>
       <div className="w-full max-w-md -mt-16">
-        {/* Toggle no canto superior direito */}
         <div className="flex justify-end mb-4">
           <ThemeToggle />
         </div>
 
-        {/* Logo */}
-        <div className="flex justify-center mb-10">
-          <div
-            className="w-26 h-26 rounded-full flex items-center justify-center overflow-hidden p-4"
-            style={{ backgroundColor: BRAND_COLORS.primary }}
-          >
+        <motion.div
+          initial={{ scale: 0.7, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+          className="mb-10 flex justify-center"
+        >
+          <div className="w-26 h-26 flex items-center justify-center overflow-hidden rounded-full p-4" style={{ backgroundColor: BRAND_COLORS.primary }}>
             <Image
               src={BRAND_ASSETS.symbol}
               alt={BRAND_NAME}
@@ -85,78 +78,64 @@ export default function ManagerLoginPage() {
               className="object-contain"
               style={{ height: 'auto' }}
               onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none'
+                ;(e.target as HTMLImageElement).style.display = 'none'
               }}
             />
           </div>
-        </div>
+        </motion.div>
 
-        {/* Card */}
-        <div className="rounded-2xl p-8" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
-          <h1 className="text-2xl font-semibold mb-1" style={{ color: T.text }}>AvaxMap</h1>
-          <p className="text-sm mb-8" style={{ color: T.textMuted }}>
-            Entre com suas credenciais para acessar o dashboard.
-          </p>
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.3, ease: 'easeOut' }}
+        >
+          <Card className="p-8">
+            <h1 className="text-2xl font-semibold mb-1" style={{ color: T.text }}>AvaxMap</h1>
+            <p className="text-sm mb-8" style={{ color: T.textMuted }}>
+              Entre com suas credenciais para acessar o dashboard.
+            </p>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium" style={{ color: T.textMuted }}>
-                E-mail
-              </label>
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="gestor@beetouch.ai"
-                className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
-                style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = BRAND_COLORS.primary)}
-                onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
-                disabled={loading}
-              />
-            </div>
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" style={{ color: T.textMuted }}>
+                  E-mail
+                </label>
+                <Input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="gestor@beetouch.ai"
+                  disabled={loading}
+                />
+              </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium" style={{ color: T.textMuted }}>
-                Senha
-              </label>
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full rounded-lg px-4 py-3 text-sm outline-none transition-colors"
-                style={{ backgroundColor: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = BRAND_COLORS.primary)}
-                onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
-                disabled={loading}
-              />
-            </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" style={{ color: T.textMuted }}>
+                  Senha
+                </label>
+                <Input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={loading}
+                />
+              </div>
 
-            {error && (
-              <p className="text-sm rounded-lg px-4 py-2.5" style={{ backgroundColor: '#EF444422', border: '1px solid #EF444440', color: '#EF4444' }}>
-                {error}
-              </p>
-            )}
+              <AlertPresence show={!!error}>{error}</AlertPresence>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg py-3 text-sm font-semibold transition-colors mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-            >
-              {loading ? 'Entrando...' : 'Entrar →'}
-            </button>
-          </form>
-        </div>
+              <Button type="submit" size="lg" loading={loading} className="mt-2 w-full">
+                {loading ? 'Entrando...' : 'Entrar →'}
+              </Button>
+            </form>
+          </Card>
+        </motion.div>
 
-        <p className="text-center text-xs mt-6" style={{ color: isDark ? '#525252' : '#A3A3A3' }}>
+        <p className="text-center text-xs mt-6" style={{ color: T.textFaint }}>
           {BRAND_NAME} — Plataforma de Mapeamento de Riscos Psicossociais
         </p>
       </div>

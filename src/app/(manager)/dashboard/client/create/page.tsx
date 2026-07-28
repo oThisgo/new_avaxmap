@@ -1,14 +1,22 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_COLORS } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Select } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { AlertPresence } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
+import { HSE_QUESTIONS, HSE_CODES } from '@/lib/analytics/hse-definition'
+import { IETR_QUESTIONS, IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { QuestionOrderEditor } from '@/components/mapping/QuestionOrderEditor'
 
 type MappingStatus = 'draft' | 'active'
-type ManagerRole = 'admin' | 'manager' | 'analyst' | 'viewer'
+type ManagerRole = 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
 
 type ManagerInput = {
   name: string
@@ -54,10 +62,34 @@ type ColumnProfileCard = {
   locked_reason: string | null
 }
 
-const MODULE_OPTIONS = [
-  { value: 'sociodemografico', label: 'Sociodemográfico' },
-  { value: 'hse', label: 'HSE (riscos psicossociais)' },
-  { value: 'ietr', label: 'IETR (trabalho remoto)' },
+type ModuleDef = {
+  key: 'sociodemografico' | 'hse' | 'ietr'
+  title: string
+  description: string
+  domains?: readonly string[]
+  questionCount?: number
+}
+
+const MODULE_DEFS: readonly ModuleDef[] = [
+  {
+    key: 'sociodemografico',
+    title: 'Sociodemográfico',
+    description: 'Perfil dos colaboradores (idade, gênero, raça/cor, escolaridade, estado civil, deficiência) para cruzamentos e filtros no dashboard. Não tem perguntas de risco — os campos exibidos dependem das colunas do CSV e são configurados na etapa "Estrutura do CSV".',
+  },
+  {
+    key: 'hse',
+    title: 'HSE — Riscos psicossociais',
+    description: 'Baseado no HSE Management Standards Indicator Tool. Mede a percepção dos colaboradores em 7 domínios de risco psicossocial no trabalho, com escala de 5 pontos.',
+    domains: ['Demandas', 'Controle', 'Apoio da Liderança', 'Apoio dos Colegas', 'Relacionamentos', 'Cargo', 'Comunicação e Mudanças'],
+    questionCount: HSE_QUESTIONS.length,
+  },
+  {
+    key: 'ietr',
+    title: 'IETR — Trabalho remoto',
+    description: 'Avalia a experiência de quem trabalha remotamente em 8 domínios, com escala de 5 pontos. Só é aplicado a colaboradores que informam trabalhar remotamente no módulo sociodemográfico.',
+    domains: ['Demandas', 'Controle', 'Suporte', 'Comunicação', 'Papel', 'Limites', 'Ambiente', 'Produtividade'],
+    questionCount: IETR_QUESTIONS.length,
+  },
 ] as const
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: MappingStatus; label: string }> = [
@@ -66,86 +98,12 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: MappingStatus; label: string }> = [
 ]
 
 const MANAGER_ROLE_OPTIONS: ReadonlyArray<{ value: ManagerRole; label: string }> = [
+  { value: 'superuser', label: 'Superuser (base de trabalhadores, exportações, relatórios)' },
   { value: 'admin', label: 'Admin' },
   { value: 'manager', label: 'Gestor' },
   { value: 'analyst', label: 'Analista' },
   { value: 'viewer', label: 'Visualizador' },
 ]
-
-function StyledDropdown<T extends string>({
-  value,
-  onChange,
-  options,
-  placeholder,
-  border,
-  bg,
-  text,
-  textMuted,
-}: Readonly<{
-  value: T
-  onChange: (v: T) => void
-  options: ReadonlyArray<{ value: T; label: string }>
-  placeholder?: string
-  border: string
-  bg: string
-  text: string
-  textMuted: string
-}>) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onClickOutside)
-    return () => document.removeEventListener('mousedown', onClickOutside)
-  }, [])
-
-  const selected = options.find((opt) => opt.value === value)
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors flex items-center justify-between"
-        style={{ border: `1px solid ${open ? BRAND_COLORS.primary : border}`, backgroundColor: bg, color: selected ? text : textMuted }}
-      >
-        <span>{selected?.label ?? placeholder ?? 'Selecione'}</span>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style={{ opacity: 0.55 }}>
-          <path d="M6 8L1.5 3.5h9z" />
-        </svg>
-      </button>
-
-      {open && (
-        <div
-          className="absolute z-40 mt-1 w-full rounded-xl py-1"
-          style={{ border: `1px solid ${border}`, backgroundColor: bg, boxShadow: '0 10px 30px rgba(0,0,0,0.20)' }}
-        >
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => {
-                onChange(opt.value)
-                setOpen(false)
-              }}
-              className="w-full px-3 py-2 text-left text-sm transition-colors"
-              style={{ color: opt.value === value ? BRAND_COLORS.primary : text, backgroundColor: 'transparent' }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${BRAND_COLORS.primary}18` }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function toggleInList(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
@@ -240,18 +198,7 @@ function reapplyColumnLocks(
 
 export default function CreateMappingPage() {
   const router = useRouter()
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-
-  const T = useMemo(() => ({
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-  }), [isDark])
+  const T = useThemeTokens()
 
   const [name, setName] = useState('')
   const [status, setStatus] = useState<MappingStatus>('draft')
@@ -265,8 +212,14 @@ export default function CreateMappingPage() {
   const [credentialColumn, setCredentialColumn] = useState('')
   const [columnCards, setColumnCards] = useState<ColumnProfileCard[]>([])
   const [selectedModules, setSelectedModules] = useState<string[]>(['sociodemografico', 'hse', 'ietr'])
+  const [expandedModule, setExpandedModule] = useState<string | null>(null)
+  const [hseOrder, setHseOrder] = useState<string[]>(HSE_CODES)
+  const [hseTextOverrides, setHseTextOverrides] = useState<Record<string, string>>({})
+  const [ietrOrder, setIetrOrder] = useState<string[]>(IETR_CODES)
+  const [ietrTextOverrides, setIetrTextOverrides] = useState<Record<string, string>>({})
   const [managers, setManagers] = useState<ManagerInput[]>([{ name: '', email: '', role: 'manager' }])
   const tcleEditorRef = useRef<HTMLDivElement>(null)
+  const csvInputRef = useRef<HTMLInputElement>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -525,6 +478,10 @@ export default function CreateMappingPage() {
           column_profiles: columnCards,
           credential_column: credentialColumn || null,
           column_mapping: columnMapping,
+          hse_question_order: hseOrder,
+          hse_question_text_overrides: hseTextOverrides,
+          ietr_question_order: ietrOrder,
+          ietr_question_text_overrides: ietrTextOverrides,
           managers: cleanManagers,
         }),
       })
@@ -584,14 +541,10 @@ export default function CreateMappingPage() {
               </label>
               <label className="text-sm">
                 <span className="mb-1.5 block" style={{ color: T.textMuted }}>Status inicial</span>
-                <StyledDropdown<MappingStatus>
+                <Select
                   value={status}
-                  onChange={setStatus}
+                  onChange={(v) => setStatus(v as MappingStatus)}
                   options={STATUS_OPTIONS}
-                  border={T.border}
-                  bg={T.surface2}
-                  text={T.text}
-                  textMuted={T.textMuted}
                 />
               </label>
             </div>
@@ -599,38 +552,116 @@ export default function CreateMappingPage() {
 
           <section className="rounded-2xl p-4 sm:p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
             <h2 className="text-lg font-semibold">Módulos e Dashboard</h2>
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <p className="text-sm mb-2" style={{ color: T.textMuted }}>Módulos incluídos *</p>
-                <div className="space-y-2">
-                  {MODULE_OPTIONS.map((opt) => (
-                    <label key={opt.value} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={selectedModules.includes(opt.value)}
-                        onChange={() => setSelectedModules((prev) => toggleInList(prev, opt.value))}
+            <p className="mt-1 text-xs" style={{ color: T.textFaint }}>
+              Escolha os módulos do questionário. Em HSE e IETR você pode revisar os domínios, editar o enunciado de cada pergunta e reordená-las arrastando.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {MODULE_DEFS.map((mod) => {
+                const enabled = selectedModules.includes(mod.key)
+                const hasQuestions = mod.key === 'hse' || mod.key === 'ietr'
+                const isExpanded = expandedModule === mod.key
+
+                return (
+                  <div key={mod.key} className="rounded-xl p-4" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2 }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <Checkbox
+                        checked={enabled}
+                        onChange={() => setSelectedModules((prev) => toggleInList(prev, mod.key))}
+                        label={<span className="font-semibold" style={{ color: T.text }}>{mod.title}</span>}
                       />
-                      <span>{opt.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-sm mb-2" style={{ color: T.textMuted }}>Coluna de credencial de acesso</p>
-                <StyledDropdown<string>
-                  value={credentialColumn}
-                  onChange={setCredentialColumn}
-                  options={credentialCandidates.map((col) => ({ value: col, label: col }))}
-                  placeholder="Escolha a coluna de credencial"
-                  border={T.border}
-                  bg={T.surface2}
-                  text={T.text}
-                  textMuted={T.textMuted}
-                />
-                <p className="mt-2 text-xs" style={{ color: T.textFaint }}>
-                  Sugestão automática baseada no cabeçalho do CSV (CPF, matrícula, e-mail).
-                </p>
-              </div>
+                      {hasQuestions && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedModule((prev) => (prev === mod.key ? null : mod.key))}
+                          disabled={!enabled}
+                          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          style={{ border: `1px solid ${T.border}`, color: T.textMuted, backgroundColor: T.surface }}
+                        >
+                          <span>{isExpanded ? 'Ocultar perguntas' : `Ver ${mod.questionCount} perguntas`}</span>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="mt-2 text-sm" style={{ color: T.textMuted }}>{mod.description}</p>
+
+                    {mod.domains && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {mod.domains.map((domain) => (
+                          <Badge key={domain}>{domain}</Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {hasQuestions && (
+                      <div
+                        style={{
+                          maxHeight: enabled && isExpanded ? '20000px' : '0px',
+                          opacity: enabled && isExpanded ? 1 : 0,
+                          overflow: 'hidden',
+                          transition: 'max-height 0.55s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.4s ease-out',
+                        }}
+                      >
+                        <div className="mt-4">
+                          {mod.key === 'hse' ? (
+                            <QuestionOrderEditor
+                              questions={HSE_QUESTIONS}
+                              order={hseOrder}
+                              textOverrides={hseTextOverrides}
+                              onOrderChange={setHseOrder}
+                              onTextChange={(code, text) => setHseTextOverrides((prev) => ({ ...prev, [code]: text }))}
+                              onResetText={(code) => setHseTextOverrides((prev) => {
+                                const next = { ...prev }
+                                delete next[code]
+                                return next
+                              })}
+                            />
+                          ) : (
+                            <QuestionOrderEditor
+                              questions={IETR_QUESTIONS}
+                              order={ietrOrder}
+                              textOverrides={ietrTextOverrides}
+                              onOrderChange={setIetrOrder}
+                              onTextChange={(code, text) => setIetrTextOverrides((prev) => ({ ...prev, [code]: text }))}
+                              onResetText={(code) => setIetrTextOverrides((prev) => {
+                                const next = { ...prev }
+                                delete next[code]
+                                return next
+                              })}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-4">
+              <p className="text-sm mb-2" style={{ color: T.textMuted }}>Coluna de credencial de acesso</p>
+              <Select
+                value={credentialColumn}
+                onChange={setCredentialColumn}
+                options={credentialCandidates.map((col) => ({ value: col, label: col }))}
+                placeholder="Escolha a coluna de credencial"
+              />
+              <p className="mt-2 text-xs" style={{ color: T.textFaint }}>
+                Sugestão automática baseada no cabeçalho do CSV (CPF, matrícula, e-mail).
+              </p>
             </div>
           </section>
 
@@ -641,27 +672,35 @@ export default function CreateMappingPage() {
             </p>
 
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-              <label className="text-sm">
+              <div className="text-sm">
                 <span className="mb-1.5 block" style={{ color: T.textMuted }}>Arquivo CSV da empresa</span>
                 <input
+                  ref={csvInputRef}
                   type="file"
                   accept=".csv,text/csv"
                   onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
-                  className="w-full rounded-lg px-3 py-2 text-sm"
-                  style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.text }}
+                  className="hidden"
                 />
-              </label>
-              <button
-                type="button"
-                onClick={handleInferCsvColumns}
-                disabled={inferLoading}
-                className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                style={{ backgroundColor: BRAND_COLORS.primary }}
-                onMouseEnter={(e) => { if (!inferLoading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-              >
+                <div
+                  className="flex w-full items-center gap-3 rounded-lg px-1.5 py-1.5"
+                  style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2 }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => csvInputRef.current?.click()}
+                    className="flex-shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                    style={{ backgroundColor: T.surface, color: T.text, border: `1px solid ${T.border}` }}
+                  >
+                    Escolher arquivo
+                  </button>
+                  <span className="truncate text-sm" style={{ color: csvFile ? T.text : T.textFaint }}>
+                    {csvFile ? csvFile.name : 'Nenhum arquivo selecionado'}
+                  </span>
+                </div>
+              </div>
+              <Button type="button" onClick={handleInferCsvColumns} loading={inferLoading}>
                 {inferLoading ? 'Lendo colunas...' : 'Ler colunas do CSV'}
-              </button>
+              </Button>
             </div>
 
             {inferError && (
@@ -846,14 +885,9 @@ export default function CreateMappingPage() {
           <section className="rounded-2xl p-4 sm:p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">Gestores do mapeamento</h2>
-              <button
-                type="button"
-                onClick={addManagerRow}
-                className="rounded-lg px-3 py-2 text-xs font-semibold"
-                style={{ border: `1px solid ${T.border}`, color: T.textMuted, backgroundColor: T.surface2 }}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={addManagerRow}>
                 Adicionar gestor
-              </button>
+              </Button>
             </div>
             <div className="mt-3 space-y-3">
               {managers.map((m, idx) => (
@@ -873,40 +907,27 @@ export default function CreateMappingPage() {
                     className="rounded-lg px-3 py-2 outline-none"
                     style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface, color: T.text }}
                   />
-                  <StyledDropdown<ManagerRole>
+                  <Select
                     value={m.role}
-                    onChange={(role) => updateManager(idx, { role })}
+                    onChange={(role) => updateManager(idx, { role: role as ManagerRole })}
                     options={MANAGER_ROLE_OPTIONS}
-                    border={T.border}
-                    bg={T.surface}
-                    text={T.text}
-                    textMuted={T.textMuted}
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => removeManagerRow(idx)}
                     disabled={managers.length === 1}
-                    className="rounded-lg px-3 py-2 text-sm disabled:opacity-50"
-                    style={{ border: `1px solid ${T.border}`, color: '#EF4444', backgroundColor: T.surface }}
+                    style={{ color: BRAND_COLORS.danger }}
                   >
                     Remover
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           </section>
 
-          {error && (
-            <div className="rounded-xl p-3 text-sm" style={{ border: '1px solid #ef444466', backgroundColor: '#ef44441a', color: '#ef4444' }}>
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="rounded-xl p-3 text-sm" style={{ border: '1px solid #22c55e66', backgroundColor: '#22c55e1a', color: '#22c55e' }}>
-              {success}
-            </div>
-          )}
+          <AlertPresence show={!!error}>{error}</AlertPresence>
+          <AlertPresence show={!!success} tone="success">{success}</AlertPresence>
 
           {createdCredentials.length > 0 && (
             <section className="rounded-2xl p-4" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
@@ -923,16 +944,9 @@ export default function CreateMappingPage() {
           )}
 
           <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-              style={{ backgroundColor: BRAND_COLORS.primary }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-            >
+            <Button type="submit" size="lg" loading={loading}>
               {loading ? 'Criando...' : 'Criar mapeamento'}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

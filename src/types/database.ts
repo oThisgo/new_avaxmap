@@ -31,6 +31,9 @@ export interface Collaborator {
   disability?: string | null
   which_disability?: string | null
   remote_status?: string | null
+
+  // Colunas customizadas do CSV do cliente (chave = slug do cabeçalho, ver src/lib/mapping/column-key.ts)
+  extra_fields?: Record<string, string | null> | null
 }
 
 export interface AnswerRecord {
@@ -70,7 +73,9 @@ export interface Manager {
   id: string
   name: string
   email: string
+  role: string
   password_hash: string
+  temp_password_plain?: string | null
   is_active: boolean
   created_at: string
 }

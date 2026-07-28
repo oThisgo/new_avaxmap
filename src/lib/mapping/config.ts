@@ -1,25 +1,13 @@
+import { toCustomFieldKey } from './column-key'
+import { normalizeQuestionOverrides } from './question-overrides'
+import { HSE_CODES } from '@/lib/analytics/hse-definition'
+import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+
 export type MappingModuleKey = 'sociodemografico' | 'hse' | 'ietr'
 
-export type DashboardFilterKey =
-  | 'area'
-  | 'role'
-  | 'gender'
-  | 'race_color'
-  | 'employment_type'
-  | 'age_range'
-
-export type DemographicChartKey =
-  | 'gender'
-  | 'age_range'
-  | 'race_color'
-  | 'education_level'
-  | 'marital_status'
-  | 'disability'
-  | 'disability_types'
-
 export const DEFAULT_MODULES: MappingModuleKey[] = ['sociodemografico', 'hse', 'ietr']
-export const DEFAULT_FILTERS: DashboardFilterKey[] = ['area', 'role', 'employment_type', 'gender', 'race_color']
-export const DEFAULT_DEMOGRAPHIC_CHARTS: DemographicChartKey[] = [
+export const DEFAULT_FILTERS: string[] = ['area', 'role', 'employment_type', 'gender', 'race_color']
+export const DEFAULT_DEMOGRAPHIC_CHARTS: string[] = [
   'gender',
   'age_range',
   'race_color',
@@ -29,31 +17,37 @@ export const DEFAULT_DEMOGRAPHIC_CHARTS: DemographicChartKey[] = [
   'disability_types',
 ]
 
-const FILTER_LABELS: Record<DashboardFilterKey, string> = {
+const CANONICAL_LABELS: Record<string, string> = {
   area: 'Área',
   role: 'Cargo',
   gender: 'Gênero',
   race_color: 'Raça/Cor',
   employment_type: 'Vínculo',
   age_range: 'Faixa etária',
-}
-
-const CHART_LABELS: Record<DemographicChartKey, string> = {
-  gender: 'Gênero',
-  age_range: 'Faixa Etária',
-  race_color: 'Raça / Cor',
   education_level: 'Escolaridade',
   marital_status: 'Estado Civil',
   disability: 'Deficiência (PcD)',
   disability_types: 'Tipos de Deficiência',
 }
 
-export function getFilterLabel(key: DashboardFilterKey): string {
-  return FILTER_LABELS[key]
-}
-
-export function getChartLabel(key: DemographicChartKey): string {
-  return CHART_LABELS[key]
+/**
+ * Campos de `column_mapping` (header reconhecido pela inferência de CSV) que
+ * podem virar filtro/gráfico demográfico, e a chave canônica correspondente.
+ * `birth_date`/`age_range` colapsam na mesma chave porque o dashboard só
+ * exibe faixa etária derivada, nunca a data de nascimento crua.
+ */
+const CANONICAL_FIELD_BY_COLUMN_MAPPING_KEY: Record<string, string> = {
+  area: 'area',
+  role: 'role',
+  employment_type: 'employment_type',
+  gender: 'gender',
+  race_color: 'race_color',
+  birth_date: 'age_range',
+  age_range: 'age_range',
+  education_level: 'education_level',
+  marital_status: 'marital_status',
+  disability: 'disability',
+  disability_type: 'disability_types',
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -62,27 +56,6 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((v): v is string => typeof v === 'string')
     .map((v) => v.trim())
     .filter((v) => v.length > 0)
-}
-
-function toFilterKey(value: string): DashboardFilterKey | null {
-  if (value === 'area') return 'area'
-  if (value === 'role') return 'role'
-  if (value === 'gender') return 'gender'
-  if (value === 'race_color') return 'race_color'
-  if (value === 'employment_type') return 'employment_type'
-  if (value === 'age_range') return 'age_range'
-  return null
-}
-
-function toChartKey(value: string): DemographicChartKey | null {
-  if (value === 'gender') return 'gender'
-  if (value === 'age_range') return 'age_range'
-  if (value === 'race_color') return 'race_color'
-  if (value === 'education_level') return 'education_level'
-  if (value === 'marital_status') return 'marital_status'
-  if (value === 'disability') return 'disability'
-  if (value === 'disability_type' || value === 'disability_types') return 'disability_types'
-  return null
 }
 
 function toModuleKey(value: string): MappingModuleKey | null {
@@ -96,14 +69,54 @@ function unique<T>(items: T[]): T[] {
   return Array.from(new Set(items))
 }
 
+/** header do CSV -> chave canônica (ex.: "Gênero" -> "gender"), a partir de column_mapping. */
+function buildHeaderFieldMap(columnMapping: Record<string, string>): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const [field, header] of Object.entries(columnMapping)) {
+    const canonical = CANONICAL_FIELD_BY_COLUMN_MAPPING_KEY[field]
+    if (!canonical || !header) continue
+    map[header] = canonical
+  }
+  return map
+}
+
+/**
+ * Resolve um cabeçalho bruto de CSV (como salvo em dashboard_filters/demographic_columns)
+ * para uma chave estável: a chave canônica quando o cabeçalho corresponde a um campo
+ * padrão reconhecido (via column_mapping), ou `custom:<slug>` caso contrário. Também
+ * acumula o rótulo de exibição correspondente em `labels`.
+ */
+function resolveFieldKey(
+  header: string,
+  headerFieldMap: Record<string, string>,
+  columnDisplayNames: Record<string, string>,
+  labels: Record<string, string>,
+): string {
+  const canonical = headerFieldMap[header]
+  if (canonical) {
+    labels[canonical] = labels[canonical] ?? CANONICAL_LABELS[canonical] ?? canonical
+    return canonical
+  }
+
+  const key = toCustomFieldKey(header)
+  labels[key] = columnDisplayNames[header] || header
+  return key
+}
+
 export type NormalizedMappingConfig = {
   modules: MappingModuleKey[]
-  dashboard_filters: DashboardFilterKey[]
-  demographic_columns: DemographicChartKey[]
+  dashboard_filters: string[]
+  demographic_columns: string[]
   credential_column: string | null
   column_mapping: Record<string, string>
   column_display_names: Record<string, string>
   column_profiles: Array<Record<string, unknown>>
+  /** Rótulo de exibição para qualquer chave presente em dashboard_filters/demographic_columns. */
+  field_labels: Record<string, string>
+  hse_question_order: string[]
+  hse_question_text_overrides: Record<string, string>
+  ietr_question_order: string[]
+  ietr_question_text_overrides: Record<string, string>
 }
 
 export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
@@ -115,18 +128,6 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
     normalizeStringArray(config.modules)
       .map((v) => toModuleKey(v))
       .filter((v): v is MappingModuleKey => v !== null),
-  )
-
-  const dashboardFilters = unique(
-    normalizeStringArray(config.dashboard_filters)
-      .map((v) => toFilterKey(v))
-      .filter((v): v is DashboardFilterKey => v !== null),
-  )
-
-  const demographicColumns = unique(
-    normalizeStringArray(config.demographic_columns)
-      .map((v) => toChartKey(v))
-      .filter((v): v is DemographicChartKey => v !== null),
   )
 
   const credentialColumn = typeof config.credential_column === 'string' && config.credential_column.trim().length > 0
@@ -155,13 +156,40 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
     ? config.column_profiles.filter((row) => row && typeof row === 'object') as Array<Record<string, unknown>>
     : []
 
+  const hseOverrides = normalizeQuestionOverrides(config.hse_question_order, config.hse_question_text_overrides, HSE_CODES)
+  const ietrOverrides = normalizeQuestionOverrides(config.ietr_question_order, config.ietr_question_text_overrides, IETR_CODES)
+
+  const headerFieldMap = buildHeaderFieldMap(columnMapping)
+  const fieldLabels: Record<string, string> = {}
+
+  const dashboardFilters = unique(
+    normalizeStringArray(config.dashboard_filters)
+      .map((header) => resolveFieldKey(header, headerFieldMap, columnDisplayNames, fieldLabels)),
+  )
+
+  const demographicColumns = unique(
+    normalizeStringArray(config.demographic_columns)
+      .map((header) => resolveFieldKey(header, headerFieldMap, columnDisplayNames, fieldLabels)),
+  )
+
+  const effectiveFilters = dashboardFilters.length > 0 ? dashboardFilters : DEFAULT_FILTERS
+  const effectiveCharts = demographicColumns.length > 0 ? demographicColumns : DEFAULT_DEMOGRAPHIC_CHARTS
+  for (const key of [...effectiveFilters, ...effectiveCharts]) {
+    fieldLabels[key] = fieldLabels[key] ?? CANONICAL_LABELS[key] ?? key
+  }
+
   return {
     modules: modules.length > 0 ? modules : DEFAULT_MODULES,
-    dashboard_filters: dashboardFilters.length > 0 ? dashboardFilters : DEFAULT_FILTERS,
-    demographic_columns: demographicColumns.length > 0 ? demographicColumns : DEFAULT_DEMOGRAPHIC_CHARTS,
+    dashboard_filters: effectiveFilters,
+    demographic_columns: effectiveCharts,
     credential_column: credentialColumn,
     column_mapping: columnMapping,
     column_display_names: columnDisplayNames,
     column_profiles: columnProfiles,
+    field_labels: fieldLabels,
+    hse_question_order: hseOverrides.order,
+    hse_question_text_overrides: hseOverrides.text,
+    ietr_question_order: ietrOverrides.order,
+    ietr_question_text_overrides: ietrOverrides.text,
   }
 }

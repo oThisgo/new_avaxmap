@@ -1,10 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@/components/ThemeProvider'
+import { motion } from 'motion/react'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
+import { BRAND_NAME } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Alert } from '@/components/ui/alert'
 
 type MappingRow = {
   id: string
@@ -27,18 +33,7 @@ type TenantContext = {
 
 export default function ClientDashboardPage() {
   const router = useRouter()
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-
-  const T = useMemo(() => ({
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-  }), [isDark])
+  const T = useThemeTokens()
 
   const [tenant, setTenant] = useState<TenantContext | null>(null)
   const [mappings, setMappings] = useState<MappingRow[]>([])
@@ -102,89 +97,67 @@ export default function ClientDashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => router.push('/dashboard/client/create')}
-              className="rounded-lg px-3 py-2 text-sm font-semibold transition-colors text-white"
-              style={{ backgroundColor: BRAND_COLORS.primary }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-            >
+            <Button onClick={() => router.push('/dashboard/client/create')}>
               Criar mapeamento
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => {
                 const firstMapping = mappings[0]
                 if (firstMapping) {
                   router.push(`/mapeamento/${firstMapping.slug}/dashboard`)
                 }
               }}
-              className="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-              style={{ border: `1px solid ${T.border}`, color: T.textMuted, backgroundColor: T.surface }}
             >
               Ir para Analytics
-            </button>
+            </Button>
             <ThemeToggle />
           </div>
         </div>
 
-        <section className="mb-6 rounded-2xl p-4 sm:p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
+        <Card className="mb-6 p-4 sm:p-5">
           <p className="text-xs uppercase tracking-wide" style={{ color: T.textFaint }}>Cliente</p>
           {tenant ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-lg font-semibold">{tenant.name}</span>
-              <span className="rounded-full px-2.5 py-1 text-xs" style={{ color: BRAND_COLORS.primary, backgroundColor: `${BRAND_COLORS.primary}18` }}>
-                {tenant.role}
-              </span>
-              {!tenant.is_active && (
-                <span className="rounded-full px-2.5 py-1 text-xs" style={{ color: '#EF4444', backgroundColor: '#EF444422' }}>
-                  Inativo
-                </span>
-              )}
+              <Badge tone="primary">{tenant.role}</Badge>
+              {!tenant.is_active && <Badge tone="danger">Inativo</Badge>}
             </div>
           ) : (
             <p className="mt-2 text-sm" style={{ color: T.textMuted }}>Nenhum cliente vinculado a este usuário.</p>
           )}
-        </section>
+        </Card>
 
         {loading && (
-          <div className="rounded-2xl p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
-            <p className="text-sm" style={{ color: T.textMuted }}>Carregando mapeamentos...</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}
           </div>
         )}
 
-        {!loading && error && (
-          <div className="rounded-2xl p-5" style={{ border: '1px solid #ef444466', backgroundColor: '#ef44441a' }}>
-            <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
-          </div>
-        )}
+        {!loading && error && <Alert>{error}</Alert>}
 
         {!loading && !error && mappings.length === 0 && (
-          <div className="rounded-2xl p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
+          <Card className="p-5">
             <p className="text-sm" style={{ color: T.textMuted }}>
               Ainda não há mapeamentos criados para este cliente.
             </p>
-          </div>
+          </Card>
         )}
 
         {!loading && !error && mappings.length > 0 && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {mappings.map((mapping) => (
-              <article
+            {mappings.map((mapping, idx) => (
+              <motion.article
                 key={mapping.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: Math.min(idx * 0.05, 0.4), ease: 'easeOut' }}
                 className="rounded-2xl p-5"
                 style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}
               >
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  {mapping.is_demo && (
-                    <span className="rounded-full px-2.5 py-1 text-xs font-medium" style={{ color: BRAND_COLORS.primary, backgroundColor: `${BRAND_COLORS.primary}20` }}>
-                      Demo
-                    </span>
-                  )}
-                  <span className="rounded-full px-2.5 py-1 text-xs" style={{ color: T.textMuted, backgroundColor: T.surface2 }}>
-                    {mapping.status}
-                  </span>
+                  {mapping.is_demo && <Badge tone="primary">Demo</Badge>}
+                  <Badge>{mapping.status}</Badge>
                 </div>
 
                 <h2 className="text-lg font-semibold leading-tight">{mapping.name}</h2>
@@ -197,17 +170,15 @@ export default function ClientDashboardPage() {
                   <span>{new Date(mapping.updated_at).toLocaleDateString('pt-BR')}</span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => openMapping(mapping)}
-                  className="mt-4 w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
-                  style={{ backgroundColor: BRAND_COLORS.primary }}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-                >
-                  Abrir mapeamento
-                </button>
-              </article>
+                <div className="mt-4 flex gap-2">
+                  <Button onClick={() => openMapping(mapping)} className="flex-1">
+                    Abrir mapeamento
+                  </Button>
+                  <Button variant="outline" onClick={() => router.push(`/dashboard/client/${mapping.id}`)}>
+                    Editar
+                  </Button>
+                </div>
+              </motion.article>
             ))}
           </div>
         )}

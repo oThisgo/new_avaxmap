@@ -1,10 +1,17 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_COLORS } from '@/lib/brand'
+import { useThemeTokens } from '@/lib/theme'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { AlertPresence } from '@/components/ui/alert'
+import { Skeleton } from '@/components/ui/skeleton'
 
 type ManagerRow = {
   id: string
@@ -17,21 +24,15 @@ type ManagerRow = {
   temp_password_plain: string | null
 }
 
-const ROLE_OPTIONS = ['manager', 'admin', 'superuser']
+const ROLE_OPTIONS = [
+  { value: 'manager', label: 'manager' },
+  { value: 'admin', label: 'admin' },
+  { value: 'superuser', label: 'superuser' },
+]
 
 export default function ManagersAdminPage() {
   const router = useRouter()
-  const { theme } = useTheme()
-  const isDark = theme === 'dark'
-  const T = {
-    bg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightBg,
-    surface: isDark ? BRAND_COLORS.darkSurface : BRAND_COLORS.lightSurface,
-    surface2: isDark ? BRAND_COLORS.darkSurface2 : BRAND_COLORS.lightSurface2,
-    border: isDark ? BRAND_COLORS.borderDark : BRAND_COLORS.borderLight,
-    text: isDark ? BRAND_COLORS.textLight : BRAND_COLORS.textDark,
-    textMuted: isDark ? BRAND_COLORS.textMutedDark : BRAND_COLORS.textMutedLight,
-    textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
-  }
+  const T = useThemeTokens()
 
   const [managers, setManagers] = useState<ManagerRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,11 +41,9 @@ export default function ManagersAdminPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('manager')
-  const [roleMenuOpen, setRoleMenuOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [temporaryPassword, setTemporaryPassword] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const roleMenuRef = useRef<HTMLDivElement>(null)
 
   async function loadManagers() {
     setLoading(true)
@@ -66,16 +65,6 @@ export default function ManagersAdminPage() {
 
   useEffect(() => {
     loadManagers()
-  }, [])
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (roleMenuRef.current && !roleMenuRef.current.contains(event.target as Node)) {
-        setRoleMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   async function handleCreateManager(e: { preventDefault: () => void }) {
@@ -161,7 +150,7 @@ export default function ManagersAdminPage() {
   }
 
   return (
-    <div className="min-h-screen p-6" style={{ backgroundColor: T.bg, color: T.text }}>
+    <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8" style={{ backgroundColor: T.bg, color: T.text }}>
       <div className="max-w-5xl mx-auto flex flex-col gap-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -169,8 +158,6 @@ export default function ManagersAdminPage() {
               onClick={() => router.push('/dashboard')}
               className="flex items-center gap-1.5 text-sm transition-colors"
               style={{ color: T.textMuted }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = T.text)}
-              onMouseLeave={(e) => (e.currentTarget.style.color = T.textMuted)}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6" />
@@ -183,20 +170,16 @@ export default function ManagersAdminPage() {
           <ThemeToggle />
         </div>
 
-        <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+        <Card className="p-5">
           <h1 className="text-xl font-semibold mb-1">Gestores cadastrados</h1>
           <p className="text-sm mb-4" style={{ color: T.textMuted }}>
             Área exclusiva do superuser para criar gestores e redefinir senhas temporárias.
           </p>
 
-          {error && (
-            <p className="text-sm rounded-lg px-4 py-2.5 mb-4" style={{ backgroundColor: '#EF444422', border: '1px solid #EF444440', color: '#EF4444' }}>
-              {error}
-            </p>
-          )}
+          <AlertPresence show={!!error}>{error}</AlertPresence>
 
           {temporaryPassword && (
-            <div className="rounded-lg px-4 py-3 mb-4" style={{ backgroundColor: `${BRAND_COLORS.primary}22`, border: `1px solid ${BRAND_COLORS.primary}66` }}>
+            <div className="rounded-lg px-4 py-3 mb-4 mt-4" style={{ backgroundColor: `${BRAND_COLORS.primary}22`, border: `1px solid ${BRAND_COLORS.primary}66` }}>
               <p className="text-xs uppercase tracking-wide mb-1" style={{ color: T.textFaint }}>Senha temporária gerada</p>
               <p className="text-lg font-semibold" style={{ color: BRAND_COLORS.primary }}>{temporaryPassword}</p>
               <p className="text-xs mt-1" style={{ color: T.textMuted }}>
@@ -206,192 +189,151 @@ export default function ManagersAdminPage() {
           )}
 
           {loading ? (
-            <p className="text-sm" style={{ color: T.textMuted }}>Carregando gestores...</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.border}` }}>
-              <table className="w-full text-sm">
-                <thead style={{ backgroundColor: T.surface2 }}>
-                  <tr>
-                    <th className="text-left px-3 py-2">Nome</th>
-                    <th className="text-left px-3 py-2">E-mail</th>
-                    <th className="text-left px-3 py-2">Perfil</th>
-                    <th className="text-left px-3 py-2">Código de acesso</th>
-                    <th className="text-left px-3 py-2">Primeiro acesso</th>
-                    <th className="text-left px-3 py-2">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {managers.map((m) => (
-                    <tr key={m.id} style={{ borderTop: `1px solid ${T.border}` }}>
-                      <td className="px-3 py-2">{m.name}</td>
-                      <td className="px-3 py-2" style={{ color: T.textMuted }}>{m.email}</td>
-                      <td className="px-3 py-2">{m.role}</td>
-                      <td className="px-3 py-2">
-                        {m.temp_password_plain ? (
-                          <span className="font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: `${BRAND_COLORS.primary}15`, color: BRAND_COLORS.primary, border: `1px solid ${BRAND_COLORS.primary}40` }}>
-                            {m.temp_password_plain}
-                          </span>
-                        ) : (
-                          <span style={{ color: T.textFaint }}>—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span
-                          className="text-xs px-2 py-1 rounded-full"
-                          style={{
-                            backgroundColor: m.must_change_password ? `${BRAND_COLORS.primary}22` : '#22C55E22',
-                            color: m.must_change_password ? BRAND_COLORS.primary : '#22C55E',
-                          }}
-                        >
-                          {m.must_change_password ? 'Pendente' : 'Concluído'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleResetPassword(m.id)}
-                            className="text-xs px-2 py-1 rounded-md"
-                            style={{ backgroundColor: T.surface2, border: `1px solid ${T.border}`, color: T.textMuted }}
-                          >
-                            Redefinir senha
-                          </button>
-                          {confirmDeleteId === m.id ? (
-                            <>
-                              <button
-                                onClick={() => handleDeleteManager(m.id)}
-                                className="text-xs px-2 py-1 rounded-md"
-                                style={{ backgroundColor: '#EF444420', border: '1px solid #EF444440', color: '#EF4444' }}
-                              >
-                                Confirmar
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteId(null)}
-                                className="text-xs px-2 py-1 rounded-md"
-                                style={{ backgroundColor: T.surface2, border: `1px solid ${T.border}`, color: T.textMuted }}
-                              >
-                                Cancelar
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmDeleteId(m.id)}
-                              className="text-xs px-2 py-1 rounded-md"
-                              style={{ backgroundColor: T.surface2, border: `1px solid #EF444440`, color: '#EF4444' }}
-                            >
-                              Excluir
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {managers.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-3 py-6 text-center" style={{ color: T.textFaint }}>
-                        Nenhum gestor encontrado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="flex flex-col gap-2">
+              {[0, 1, 2].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
             </div>
-          )}
-        </div>
+          ) : (
+            <>
+              {/* Tabela — telas médias/grandes */}
+              <div className="hidden md:block overflow-x-auto rounded-lg" style={{ border: `1px solid ${T.border}` }}>
+                <table className="w-full text-sm">
+                  <thead style={{ backgroundColor: T.surface2 }}>
+                    <tr>
+                      <th className="text-left px-3 py-2">Nome</th>
+                      <th className="text-left px-3 py-2">E-mail</th>
+                      <th className="text-left px-3 py-2">Perfil</th>
+                      <th className="text-left px-3 py-2">Código de acesso</th>
+                      <th className="text-left px-3 py-2">Primeiro acesso</th>
+                      <th className="text-left px-3 py-2">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {managers.map((m) => (
+                      <tr key={m.id} style={{ borderTop: `1px solid ${T.border}` }}>
+                        <td className="px-3 py-2">{m.name}</td>
+                        <td className="px-3 py-2" style={{ color: T.textMuted }}>{m.email}</td>
+                        <td className="px-3 py-2">{m.role}</td>
+                        <td className="px-3 py-2">
+                          {m.temp_password_plain ? (
+                            <span className="font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: `${BRAND_COLORS.primary}15`, color: BRAND_COLORS.primary, border: `1px solid ${BRAND_COLORS.primary}40` }}>
+                              {m.temp_password_plain}
+                            </span>
+                          ) : (
+                            <span style={{ color: T.textFaint }}>—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge tone={m.must_change_password ? 'primary' : 'success'}>
+                            {m.must_change_password ? 'Pendente' : 'Concluído'}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => handleResetPassword(m.id)}>
+                              Redefinir senha
+                            </Button>
+                            {confirmDeleteId === m.id ? (
+                              <>
+                                <Button variant="danger" size="sm" onClick={() => handleDeleteManager(m.id)}>
+                                  Confirmar
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => setConfirmDeleteId(null)}>
+                                  Cancelar
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setConfirmDeleteId(m.id)}
+                                style={{ color: BRAND_COLORS.danger, borderColor: `${BRAND_COLORS.danger}66` }}
+                              >
+                                Excluir
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {managers.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-6 text-center" style={{ color: T.textFaint }}>
+                          Nenhum gestor encontrado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
-        <div className="rounded-xl p-5" style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}>
+              {/* Cards — mobile */}
+              <div className="md:hidden flex flex-col gap-3">
+                {managers.map((m) => (
+                  <div key={m.id} className="rounded-lg p-3" style={{ border: `1px solid ${T.border}` }}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold" style={{ color: T.text }}>{m.name}</p>
+                        <p className="text-xs" style={{ color: T.textMuted }}>{m.email}</p>
+                      </div>
+                      <Badge tone={m.must_change_password ? 'primary' : 'success'}>
+                        {m.must_change_password ? 'Pendente' : 'Concluído'}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs" style={{ color: T.textFaint }}>Perfil: <span style={{ color: T.text }}>{m.role}</span></p>
+                    {m.temp_password_plain && (
+                      <span className="mt-2 inline-block font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: `${BRAND_COLORS.primary}15`, color: BRAND_COLORS.primary, border: `1px solid ${BRAND_COLORS.primary}40` }}>
+                        {m.temp_password_plain}
+                      </span>
+                    )}
+                    <div className="mt-3 flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleResetPassword(m.id)}>
+                        Redefinir senha
+                      </Button>
+                      {confirmDeleteId === m.id ? (
+                        <>
+                          <Button variant="danger" size="sm" onClick={() => handleDeleteManager(m.id)}>
+                            Confirmar
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setConfirmDeleteId(null)}>
+                            Cancelar
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setConfirmDeleteId(m.id)}
+                          style={{ color: BRAND_COLORS.danger, borderColor: `${BRAND_COLORS.danger}66` }}
+                        >
+                          Excluir
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {managers.length === 0 && (
+                  <p className="text-center text-sm py-6" style={{ color: T.textFaint }}>Nenhum gestor encontrado.</p>
+                )}
+              </div>
+            </>
+          )}
+        </Card>
+
+        <Card className="p-5">
           <h2 className="text-lg font-semibold mb-1">Adicionar novo gestor</h2>
           <p className="text-sm mb-4" style={{ color: T.textMuted }}>
             O sistema vai gerar uma senha temporária aleatória para o primeiro acesso.
           </p>
 
-          <form onSubmit={handleCreateManager} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Nome"
-              className="rounded-lg px-3 py-2 text-sm"
-              style={{ backgroundColor: T.surface2, border: `1px solid ${T.border}`, color: T.text }}
-              required
-            />
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="E-mail"
-              className="rounded-lg px-3 py-2 text-sm"
-              style={{ backgroundColor: T.surface2, border: `1px solid ${T.border}`, color: T.text }}
-              required
-            />
-            <div className="relative" ref={roleMenuRef}>
-              <button
-                type="button"
-                onClick={() => setRoleMenuOpen((v) => !v)}
-                className="w-full rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
-                style={{
-                  backgroundColor: T.surface2,
-                  border: `1px solid ${roleMenuOpen ? BRAND_COLORS.primary : T.border}`,
-                  color: T.text,
-                }}
-                onMouseEnter={(e) => {
-                  if (!roleMenuOpen) e.currentTarget.style.borderColor = T.textMuted
-                }}
-                onMouseLeave={(e) => {
-                  if (!roleMenuOpen) e.currentTarget.style.borderColor = T.border
-                }}
-              >
-                <span>{role}</span>
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 12 12"
-                  fill="currentColor"
-                  style={{ opacity: 0.45, transform: roleMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}
-                >
-                  <path d="M6 8L1 3h10z" />
-                </svg>
-              </button>
-              {roleMenuOpen && (
-                <div
-                  className="absolute top-full left-0 mt-1 w-full rounded-xl shadow-xl py-1 z-20"
-                  style={{ backgroundColor: T.surface, border: `1px solid ${T.border}` }}
-                >
-                  {ROLE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => {
-                        setRole(option)
-                        setRoleMenuOpen(false)
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
-                      style={{ color: option === role ? BRAND_COLORS.primary : T.text, fontWeight: option === role ? 600 : 400 }}
-                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = T.surface2 }}
-                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
-                    >
-                      <span>{option}</span>
-                      {option === role && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND_COLORS.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-lg py-2 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              style={{ backgroundColor: BRAND_COLORS.primary, color: '#FFFFFF' }}
-              onMouseEnter={(e) => { if (!submitting) e.currentTarget.style.backgroundColor = BRAND_COLORS.primaryHover }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = BRAND_COLORS.primary }}
-            >
+          <form onSubmit={handleCreateManager} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+            <Input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" required />
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" required />
+            <Select value={role} onChange={setRole} options={ROLE_OPTIONS} />
+            <Button type="submit" loading={submitting}>
               {submitting ? 'Criando...' : 'Criar gestor'}
-            </button>
+            </Button>
           </form>
-        </div>
+        </Card>
       </div>
     </div>
   )
