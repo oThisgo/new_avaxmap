@@ -12,6 +12,13 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { AlertPresence } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
+import { HSE_CODES } from '@/lib/analytics/hse-definition'
+import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+import {
+  MappingConfigEditor,
+  type ColumnProfileDraft,
+  type MappingConfigDraft,
+} from '@/components/mapping/MappingConfigEditor'
 
 type MappingDetail = {
   id: string
@@ -23,6 +30,74 @@ type MappingDetail = {
   is_demo: boolean
   created_at: string
   updated_at: string
+  config: Record<string, unknown> | null
+  tcle_text: string | null
+  csv_columns: string[] | null
+}
+
+function asStringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback
+  const list = value.filter((v): v is string => typeof v === 'string')
+  return list.length > 0 ? list : fallback
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+}
+
+/**
+ * Reconstrói o rascunho editável a partir do `config` persistido. Mapeamentos
+ * criados antes da configuração por coluna (ou semeados direto no banco) não têm
+ * `column_profiles` — nesse caso as colunas conhecidas do CSV viram cards.
+ */
+function buildDraftFromConfig(mapping: MappingDetail): MappingConfigDraft {
+  const config = mapping.config ?? {}
+  const csvColumns = Array.isArray(mapping.csv_columns) ? mapping.csv_columns : []
+
+  const rawProfiles = Array.isArray(config.column_profiles) ? config.column_profiles : []
+  const dashboardFilters = new Set(asStringArray(config.dashboard_filters, []))
+  const demographicColumns = new Set(asStringArray(config.demographic_columns, []))
+  const displayNames = asStringRecord(config.column_display_names)
+
+  const profiles: ColumnProfileDraft[] = rawProfiles.length > 0
+    ? rawProfiles.flatMap((raw) => {
+        if (!raw || typeof raw !== 'object') return []
+        const row = raw as Record<string, unknown>
+        const sourceName = typeof row.source_name === 'string' ? row.source_name : ''
+        if (!sourceName) return []
+        return [{
+          source_name: sourceName,
+          display_name: typeof row.display_name === 'string' && row.display_name.trim()
+            ? row.display_name
+            : sourceName,
+          is_dashboard_filter: row.is_dashboard_filter === true,
+          is_demographic: row.is_demographic === true,
+          locked: row.locked === true,
+          locked_reason: typeof row.locked_reason === 'string' ? row.locked_reason : null,
+        }]
+      })
+    : csvColumns.map((column) => ({
+        source_name: column,
+        display_name: displayNames[column] ?? column,
+        is_dashboard_filter: dashboardFilters.has(column),
+        is_demographic: demographicColumns.has(column),
+        locked: false,
+        locked_reason: null,
+      }))
+
+  return {
+    modules: asStringArray(config.modules, ['sociodemografico', 'hse', 'ietr']),
+    credential_column: typeof config.credential_column === 'string' ? config.credential_column : '',
+    column_profiles: profiles,
+    hse_question_order: asStringArray(config.hse_question_order, [...HSE_CODES]),
+    hse_question_text_overrides: asStringRecord(config.hse_question_text_overrides),
+    ietr_question_order: asStringArray(config.ietr_question_order, [...IETR_CODES]),
+    ietr_question_text_overrides: asStringRecord(config.ietr_question_text_overrides),
+  }
 }
 
 type ManagerRow = {
@@ -77,6 +152,13 @@ export default function MappingConfigPage() {
   const [statusDraft, setStatusDraft] = useState<MappingDetail['status']>('draft')
   const [statusSaving, setStatusSaving] = useState(false)
 
+  const [configDraft, setConfigDraft] = useState<MappingConfigDraft | null>(null)
+  const [configBaseline, setConfigBaseline] = useState<string>('')
+  const [configSaving, setConfigSaving] = useState(false)
+  const [configSuccess, setConfigSuccess] = useState('')
+
+  const configDirty = configDraft !== null && JSON.stringify(configDraft) !== configBaseline
+
   async function loadMapping() {
     setLoading(true)
     setError('')
@@ -90,10 +172,75 @@ export default function MappingConfigPage() {
       setMapping(data.mapping ?? null)
       setManagers(data.managers ?? [])
       if (data.mapping?.status) setStatusDraft(data.mapping.status)
+      if (data.mapping) {
+        const draft = buildDraftFromConfig(data.mapping as MappingDetail)
+        setConfigDraft(draft)
+        setConfigBaseline(JSON.stringify(draft))
+      }
     } catch {
       setError('Erro de conexão ao carregar o mapeamento.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleSaveConfig() {
+    if (!configDraft || !mapping) return
+
+    if (configDraft.modules.length === 0) {
+      setError('Selecione ao menos um módulo para o mapeamento.')
+      return
+    }
+
+    const removedModules = asStringArray(mapping.config?.modules, [])
+      .filter((mod) => !configDraft.modules.includes(mod))
+
+    if (removedModules.length > 0) {
+      const confirmed = window.confirm(
+        `Você está removendo ${removedModules.length === 1 ? 'o módulo' : 'os módulos'}: ${removedModules.join(', ')}.\n\n` +
+        'As respostas já coletadas permanecem no banco, mas deixam de aparecer no formulário, ' +
+        'no dashboard e nos relatórios.\n\nDeseja continuar?',
+      )
+      if (!confirmed) return
+    }
+
+    setError('')
+    setConfigSuccess('')
+    setConfigSaving(true)
+
+    try {
+      const res = await fetch(`/api/client/mappings/${mappingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          update_config: true,
+          modules: configDraft.modules,
+          credential_column: configDraft.credential_column,
+          column_profiles: configDraft.column_profiles,
+          column_display_names: Object.fromEntries(
+            configDraft.column_profiles.map((card) => [card.source_name, card.display_name]),
+          ),
+          // Preservado da configuração atual: o vínculo header do CSV -> campo
+          // canônico não é editável aqui e não pode ser perdido no PATCH.
+          column_mapping: mapping.config?.column_mapping ?? {},
+          csv_columns: mapping.csv_columns ?? [],
+          hse_question_order: configDraft.hse_question_order,
+          hse_question_text_overrides: configDraft.hse_question_text_overrides,
+          ietr_question_order: configDraft.ietr_question_order,
+          ietr_question_text_overrides: configDraft.ietr_question_text_overrides,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'Não foi possível salvar a configuração.')
+        return
+      }
+      setConfigSuccess('Configuração salva. As mudanças já valem para o formulário, o dashboard e os relatórios.')
+      await loadMapping()
+    } catch {
+      setError('Erro de conexão ao salvar a configuração.')
+    } finally {
+      setConfigSaving(false)
     }
   }
 
@@ -264,6 +411,52 @@ export default function MappingConfigPage() {
                   Entregue esse código ao gestor. No primeiro login ele será obrigado a definir a senha definitiva.
                 </p>
               </div>
+            )}
+
+            {configDraft && (
+              <Card className="mb-6 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold mb-1">Configuração do questionário e do dashboard</h2>
+                    <p className="text-sm" style={{ color: T.textMuted }}>
+                      Alterações valem imediatamente para novos acessos ao formulário, para o dashboard
+                      e para os relatórios gerados.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleSaveConfig}
+                    disabled={!configDirty || configSaving}
+                    loading={configSaving}
+                  >
+                    {configSaving ? 'Salvando...' : 'Salvar configuração'}
+                  </Button>
+                </div>
+
+                {configSuccess && (
+                  <div
+                    className="mt-4 rounded-lg px-4 py-3 text-sm"
+                    style={{
+                      backgroundColor: `${BRAND_COLORS.primary}18`,
+                      border: `1px solid ${BRAND_COLORS.primary}55`,
+                      color: T.text,
+                    }}
+                  >
+                    {configSuccess}
+                  </div>
+                )}
+
+                <div className="mt-5">
+                  <MappingConfigEditor
+                    draft={configDraft}
+                    onChange={(next) => {
+                      setConfigDraft(next)
+                      setConfigSuccess('')
+                    }}
+                    credentialCandidates={mapping.csv_columns ?? []}
+                    disabled={configSaving}
+                  />
+                </div>
+              </Card>
             )}
 
             <Card className="mb-6 p-5">
