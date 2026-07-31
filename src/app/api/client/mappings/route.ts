@@ -5,34 +5,12 @@ import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/password'
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'crypto'
-import { normalizeQuestionOverrides } from '@/lib/mapping/question-overrides'
-import { HSE_CODES } from '@/lib/analytics/hse-definition'
-import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
 
-type MappingPayload = {
+type MappingPayload = MappingConfigPayload & {
   name?: string
   status?: 'draft' | 'active' | 'archived'
-  modules?: string[]
-  csv_columns?: string[]
-  credential_column?: string
-  stratification_columns?: string[]
-  demographic_columns?: string[]
-  column_display_names?: Record<string, string>
-  column_profiles?: Array<{
-    source_name?: string
-    display_name?: string
-    is_dashboard_filter?: boolean
-    is_demographic?: boolean
-    locked?: boolean
-    locked_reason?: string | null
-  }>
-  column_mapping?: Record<string, string>
   tcle_text?: string
-  dashboard_filters?: string[]
-  hse_question_order?: string[]
-  hse_question_text_overrides?: Record<string, string>
-  ietr_question_order?: string[]
-  ietr_question_text_overrides?: Record<string, string>
   managers?: Array<{
     name?: string
     email?: string
@@ -77,125 +55,6 @@ async function generateUniqueMappingSlug(
   }
 
   return `${base}-${Date.now().toString(36)}`
-}
-
-function normalizeCsvColumns(cols: unknown): string[] {
-  if (!Array.isArray(cols)) return []
-  return cols
-    .filter((c): c is string => typeof c === 'string')
-    .map((c) => c.trim())
-    .filter((c) => c.length > 0)
-}
-
-function normalizeFilters(filters: unknown): string[] {
-  if (!Array.isArray(filters)) return []
-  return filters
-    .filter((f): f is string => typeof f === 'string')
-    .map((f) => f.trim())
-    .filter((f) => f.length > 0)
-}
-
-function normalizeStratificationColumns(columns: unknown): string[] {
-  if (!Array.isArray(columns)) return []
-  return columns
-    .filter((c): c is string => typeof c === 'string')
-    .map((c) => c.trim())
-    .filter((c) => c.length > 0)
-}
-
-function normalizeColumnMapping(
-  value: unknown,
-  csvColumns: string[],
-): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-
-  const allowedColumns = new Set(csvColumns)
-  const output: Record<string, string> = {}
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof v !== 'string') continue
-    const key = k.trim()
-    const column = v.trim()
-    if (!key || !column) continue
-    if (!allowedColumns.has(column)) continue
-    output[key] = column
-  }
-  return output
-}
-
-type NormalizedColumnProfile = {
-  source_name: string
-  display_name: string
-  is_dashboard_filter: boolean
-  is_demographic: boolean
-  locked: boolean
-  locked_reason: string | null
-}
-
-function normalizeColumnProfiles(
-  value: unknown,
-  csvColumns: string[],
-): NormalizedColumnProfile[] {
-  if (!Array.isArray(value)) return []
-  const allowedColumns = new Set(csvColumns)
-  const profiles: NormalizedColumnProfile[] = []
-
-  for (const item of value) {
-    if (!item || typeof item !== 'object') continue
-    const row = item as Record<string, unknown>
-    const sourceName = typeof row.source_name === 'string' ? row.source_name.trim() : ''
-    if (!sourceName || !allowedColumns.has(sourceName)) continue
-
-    const displayName = typeof row.display_name === 'string' && row.display_name.trim().length > 0
-      ? row.display_name.trim()
-      : sourceName
-
-    profiles.push({
-      source_name: sourceName,
-      display_name: displayName,
-      is_dashboard_filter: row.is_dashboard_filter === true,
-      is_demographic: row.is_demographic === true,
-      locked: row.locked === true,
-      locked_reason: typeof row.locked_reason === 'string' ? row.locked_reason : null,
-    })
-  }
-
-  return profiles
-}
-
-function normalizeColumnDisplayNames(
-  value: unknown,
-  csvColumns: string[],
-): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  const allowedColumns = new Set(csvColumns)
-  const output: Record<string, string> = {}
-
-  for (const [key, rawLabel] of Object.entries(value as Record<string, unknown>)) {
-    const column = key.trim()
-    if (!column || !allowedColumns.has(column)) continue
-    if (typeof rawLabel !== 'string') continue
-    const label = rawLabel.trim()
-    output[column] = label || column
-  }
-
-  return output
-}
-
-function normalizeModules(modules: unknown): string[] {
-  if (!Array.isArray(modules)) return []
-  const allowed = new Set(['sociodemografico', 'hse', 'ietr'])
-  return modules
-    .filter((m): m is string => typeof m === 'string')
-    .map((m) => m.trim().toLowerCase())
-    .filter((m) => allowed.has(m))
-}
-
-function inferModuleType(modules: string[]): 'HSE' | 'REMOTE' | null {
-  const hasHse = modules.includes('hse')
-  const hasIetr = modules.includes('ietr')
-  if (hasHse && !hasIetr) return 'HSE'
-  if (!hasHse && hasIetr) return 'REMOTE'
-  return null
 }
 
 export async function GET(request: NextRequest) {
@@ -273,46 +132,7 @@ export async function POST(request: NextRequest) {
 
   const name = (payload.name ?? '').trim()
   const status = payload.status ?? 'draft'
-  const modules = normalizeModules(payload.modules)
-  const csvColumns = normalizeCsvColumns(payload.csv_columns)
-  const credentialColumn = typeof payload.credential_column === 'string'
-    ? payload.credential_column.trim()
-    : ''
-  const columnMapping = normalizeColumnMapping(payload.column_mapping, csvColumns)
-  // Colunas já reservadas para campos sensíveis (nome, CPF/matrícula, e-mail, credencial)
-  // nunca podem virar filtro/dado demográfico — a UI de criação já bloqueia isso (colunas
-  // "locked"), isto é defesa em profundidade contra um payload que tente contornar a UI.
-  const sensitiveColumns = new Set(
-    [columnMapping.full_name, columnMapping.cpf, columnMapping.employee_code, columnMapping.email, credentialColumn]
-      .filter((c): c is string => !!c),
-  )
-  const rawColumnProfiles = normalizeColumnProfiles(payload.column_profiles, csvColumns)
-  const columnProfiles = rawColumnProfiles.map((profile) => (
-    sensitiveColumns.has(profile.source_name)
-      ? { ...profile, is_dashboard_filter: false, is_demographic: false }
-      : profile
-  ))
-  const dashboardFiltersFromProfiles = columnProfiles
-    .filter((profile) => profile.is_dashboard_filter)
-    .map((profile) => profile.source_name)
-  const demographicColumnsFromProfiles = columnProfiles
-    .filter((profile) => profile.is_demographic)
-    .map((profile) => profile.source_name)
-  const dashboardFilters = (dashboardFiltersFromProfiles.length > 0
-    ? dashboardFiltersFromProfiles
-    : normalizeFilters(payload.dashboard_filters)
-  ).filter((column) => !sensitiveColumns.has(column))
-  const stratificationColumns = normalizeStratificationColumns(payload.stratification_columns)
-  const effectiveStratificationColumns = stratificationColumns.length > 0
-    ? stratificationColumns
-    : dashboardFilters
-  const demographicColumns = (demographicColumnsFromProfiles.length > 0
-    ? demographicColumnsFromProfiles
-    : normalizeStratificationColumns(payload.demographic_columns)
-  ).filter((column) => !sensitiveColumns.has(column))
-  const columnDisplayNames = normalizeColumnDisplayNames(payload.column_display_names, csvColumns)
-  const hseOverrides = normalizeQuestionOverrides(payload.hse_question_order, payload.hse_question_text_overrides, HSE_CODES)
-  const ietrOverrides = normalizeQuestionOverrides(payload.ietr_question_order, payload.ietr_question_text_overrides, IETR_CODES)
+  const { config, csvColumns, moduleType } = buildMappingConfig(payload)
   const sanitizedTcleText = sanitizeRichTextHtml(payload.tcle_text ?? '')
   const tcleText = isRichTextEmpty(sanitizedTcleText) ? null : sanitizedTcleText
   const managers = Array.isArray(payload.managers) ? payload.managers : []
@@ -343,22 +163,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sem permissão para criar mapeamentos.' }, { status: 403 })
   }
 
-  const config = {
-    modules,
-    dashboard_filters: dashboardFilters,
-    stratification_columns: effectiveStratificationColumns,
-    demographic_columns: demographicColumns,
-    column_display_names: columnDisplayNames,
-    column_profiles: columnProfiles,
-    credential_column: credentialColumn || null,
-    column_mapping: columnMapping,
-    hse_question_order: hseOverrides.order,
-    hse_question_text_overrides: hseOverrides.text,
-    ietr_question_order: ietrOverrides.order,
-    ietr_question_text_overrides: ietrOverrides.text,
-    report: 'dynamic',
-  }
-
   const { data: mapping, error: mappingError } = await supabase
     .from('mappings')
     .insert({
@@ -367,7 +171,7 @@ export async function POST(request: NextRequest) {
       slug,
       description: null,
       status,
-      module_type: inferModuleType(modules),
+      module_type: moduleType,
       is_demo: false,
       tcle_text: tcleText,
       csv_columns: csvColumns,

@@ -106,6 +106,8 @@ function resolveFieldKey(
 export type NormalizedMappingConfig = {
   modules: MappingModuleKey[]
   dashboard_filters: string[]
+  /** Dimensões usadas para estratificar o relatório de risco. */
+  stratification_columns: string[]
   demographic_columns: string[]
   credential_column: string | null
   column_mapping: Record<string, string>
@@ -172,15 +174,24 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
       .map((header) => resolveFieldKey(header, headerFieldMap, columnDisplayNames, fieldLabels)),
   )
 
+  const stratificationColumns = unique(
+    normalizeStringArray(config.stratification_columns)
+      .map((header) => resolveFieldKey(header, headerFieldMap, columnDisplayNames, fieldLabels)),
+  )
+
   const effectiveFilters = dashboardFilters.length > 0 ? dashboardFilters : DEFAULT_FILTERS
   const effectiveCharts = demographicColumns.length > 0 ? demographicColumns : DEFAULT_DEMOGRAPHIC_CHARTS
-  for (const key of [...effectiveFilters, ...effectiveCharts]) {
+  // A estratificação do relatório cai para os filtros do dashboard quando não foi
+  // configurada explicitamente — são as mesmas dimensões que fazem sentido cruzar.
+  const effectiveStrata = stratificationColumns.length > 0 ? stratificationColumns : effectiveFilters
+  for (const key of [...effectiveFilters, ...effectiveCharts, ...effectiveStrata]) {
     fieldLabels[key] = fieldLabels[key] ?? CANONICAL_LABELS[key] ?? key
   }
 
   return {
     modules: modules.length > 0 ? modules : DEFAULT_MODULES,
     dashboard_filters: effectiveFilters,
+    stratification_columns: effectiveStrata,
     demographic_columns: effectiveCharts,
     credential_column: credentialColumn,
     column_mapping: columnMapping,

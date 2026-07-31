@@ -3,6 +3,8 @@ import { hash } from 'bcryptjs'
 import { createServerClient } from '@/lib/supabase/server'
 import { getManagerFromSession } from '@/lib/auth/manager'
 import { generateTemporaryPassword, wrapTemporaryHash, TEMP_PASSWORD_PREFIX } from '@/lib/auth/password'
+import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
+import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -21,7 +23,7 @@ async function requireMappingOwner(
 ) {
   const { data: mapping, error: mappingError } = await supabase
     .from('mappings')
-    .select('id, tenant_id, name, slug, description, status, module_type, is_demo, created_at, updated_at')
+    .select('id, tenant_id, name, slug, description, status, module_type, is_demo, created_at, updated_at, config, tcle_text, csv_columns')
     .eq('id', mappingId)
     .single()
 
@@ -202,8 +204,16 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
   })
 }
 
-type MappingPatchPayload = {
+type MappingPatchPayload = MappingConfigPayload & {
   status?: 'draft' | 'active' | 'archived'
+  name?: string
+  tcle_text?: string
+  /**
+   * Presente quando o gestor está editando a configuração do questionário/dashboard.
+   * Sem esta flag o PATCH altera apenas status/nome/TCLE, preservando a config —
+   * assim um PATCH parcial (ex.: só mudar o status) nunca zera a configuração.
+   */
+  update_config?: boolean
 }
 
 export async function PATCH(request: NextRequest, { params }: Readonly<RouteParams>) {
@@ -229,18 +239,64 @@ export async function PATCH(request: NextRequest, { params }: Readonly<RoutePara
     return NextResponse.json({ error: 'Payload inválido.' }, { status: 400 })
   }
 
-  if (!payload.status || !['draft', 'active', 'archived'].includes(payload.status)) {
-    return NextResponse.json({ error: 'Status inválido.' }, { status: 400 })
+  const updates: Record<string, unknown> = {}
+
+  if (payload.status !== undefined) {
+    if (!['draft', 'active', 'archived'].includes(payload.status)) {
+      return NextResponse.json({ error: 'Status inválido.' }, { status: 400 })
+    }
+    updates.status = payload.status
+  }
+
+  if (payload.name !== undefined) {
+    const name = payload.name.trim()
+    if (!name) {
+      return NextResponse.json({ error: 'Nome do mapeamento não pode ficar vazio.' }, { status: 400 })
+    }
+    updates.name = name
+  }
+
+  if (payload.tcle_text !== undefined) {
+    const sanitized = sanitizeRichTextHtml(payload.tcle_text)
+    updates.tcle_text = isRichTextEmpty(sanitized) ? null : sanitized
+  }
+
+  if (payload.update_config) {
+    // As colunas já conhecidas do mapeamento continuam valendo como lista permitida
+    // quando o gestor edita a configuração sem reenviar o CSV.
+    const existingCsvColumns = Array.isArray(result.mapping.csv_columns)
+      ? (result.mapping.csv_columns as string[])
+      : []
+
+    const { config, csvColumns, moduleType } = buildMappingConfig(payload, {
+      fallbackCsvColumns: existingCsvColumns,
+    })
+
+    const modules = config.modules as string[]
+    if (modules.length === 0) {
+      return NextResponse.json(
+        { error: 'Selecione ao menos um módulo para o mapeamento.' },
+        { status: 400 },
+      )
+    }
+
+    updates.config = config
+    updates.csv_columns = csvColumns
+    updates.module_type = moduleType
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'Nada para atualizar.' }, { status: 400 })
   }
 
   const { error: updateError } = await supabase
     .from('mappings')
-    .update({ status: payload.status })
+    .update(updates)
     .eq('id', id)
 
   if (updateError) {
-    return NextResponse.json({ error: 'Falha ao atualizar o status do mapeamento.' }, { status: 500 })
+    return NextResponse.json({ error: 'Falha ao atualizar o mapeamento.' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, status: payload.status })
+  return NextResponse.json({ ok: true, updated: Object.keys(updates) })
 }

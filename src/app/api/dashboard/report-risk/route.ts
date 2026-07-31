@@ -4,6 +4,7 @@ import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
 import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
 import { applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
+import { normalizeMappingConfig } from '@/lib/mapping/config'
 import { buildRiskReport, ReportPayload, StratumRow, IetrStratumRow } from '@/lib/reports/risk-pptx'
 
 export const dynamic    = 'force-dynamic'
@@ -76,43 +77,13 @@ const STRATUM_LABELS: Record<string, string> = {
   age_range:       'Faixa Etária',
 }
 
-const MERGED_AREA_LABEL_GENERAL = 'GESTÃO INSTITUCIONAL, DIGITAL/SAÚDE/INCLUSÃO'
-const MERGED_AREA_ALIASES_GENERAL = new Set([
-  'gestao institucional',
-  'digital/saude/inclusao',
-])
+/** Dimensões que o relatório consegue agrupar (têm coluna própria em `collaborators`). */
+const SUPPORTED_STRATUM_KEYS = new Set(Object.keys(STRATUM_LABELS))
 
-const MERGED_AREA_LABEL_EXCLUDE_PJ = 'DIGITAL / SAÚDE / INCLUSÃO, MARIA FARINHA FILMES E PRODUCOES LTDA'
-const MERGED_AREA_ALIASES_EXCLUDE_PJ = new Set([
-  'digital/saude/inclusao',
-  'maria farinha filmes e producoes ltda',
-])
-
-function normalizeText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s*\/\s*/g, '/')
-    .replace(/\s*[-–]\s*/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function mergeAreaIfNeeded(value: string, excludePj: boolean): string {
-  const normalized = normalizeText(value)
-  if (excludePj && MERGED_AREA_ALIASES_EXCLUDE_PJ.has(normalized)) {
-    return MERGED_AREA_LABEL_EXCLUDE_PJ
-  }
-  if (MERGED_AREA_ALIASES_GENERAL.has(normalized)) return MERGED_AREA_LABEL_GENERAL
-  return value
-}
-
-function getStratumKey(collab: CollabForStratum, stratum: string, excludePj: boolean): string {
+function getStratumKey(collab: CollabForStratum, stratum: string): string {
   if (stratum === 'age_range') return collab.age_range || 'Não informado'
   const raw = collab[stratum as keyof CollabRow]
   if (typeof raw !== 'string' || !raw.trim()) return 'Não informado'
-  if (stratum === 'area') return mergeAreaIfNeeded(raw, excludePj)
   return raw
 }
 
@@ -214,12 +185,11 @@ function buildStratumRows(
   collabs:   CollabForStratum[],
   respMap:   Map<string, RespRow>,
   stratum:   string,
-  excludePj: boolean,
 ): StratumRow[] {
   const groups = new Map<string, { total: number; answered: number; scores: (number | null)[]; domainSums: Record<string, number[]> }>()
 
   for (const c of collabs) {
-    const key = getStratumKey(c, stratum, excludePj)
+    const key = getStratumKey(c, stratum)
     if (!groups.has(key)) groups.set(key, { total: 0, answered: 0, scores: [], domainSums: {} })
     const g = groups.get(key)!
     g.total++
@@ -271,14 +241,13 @@ function buildIetrStratumRows(
   collabs: CollabForStratum[],
   respMap: Map<string, RespRow>,
   stratum: string,
-  excludePj: boolean,
 ): IetrStratumRow[] {
   const groups = new Map<string, { answered: number; scores: number[]; domainSums: Record<string, number[]> }>()
 
   for (const c of collabs) {
     const resp = respMap.get(c.id)
     if (!resp || resp.remote_score === null) continue
-    const key = getStratumKey(c, stratum, excludePj)
+    const key = getStratumKey(c, stratum)
     if (!groups.has(key)) groups.set(key, { answered: 0, scores: [], domainSums: {} })
     const g = groups.get(key)!
     g.answered++
@@ -345,9 +314,6 @@ export async function POST(request: NextRequest) {
   if (!clientName?.trim()) {
     return NextResponse.json({ error: 'Nome do cliente é obrigatório.' }, { status: 400 })
   }
-  if (!STRATUM_LABELS[stratum]) {
-    return NextResponse.json({ error: 'Dimensão de estratificação inválida.' }, { status: 400 })
-  }
 
   const supabase = createServerClient()
   const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
@@ -359,6 +325,33 @@ export async function POST(request: NextRequest) {
   if (!isMappingSuperuser(manager.role, mappingRole)) {
     return NextResponse.json({ error: 'Apenas superuser pode gerar relatórios.' }, { status: 403 })
   }
+
+  // Configuração do mapeamento define quais módulos entram no relatório e por
+  // quais dimensões ele é estratificado — sem isso o PPTX traria seções vazias de
+  // módulos desativados e ignoraria a estratificação escolhida na configuração.
+  const { data: mappingRow } = await supabase
+    .from('mappings')
+    .select('config')
+    .eq('id', mappingScope.mappingId)
+    .single()
+
+  const mappingConfig = normalizeMappingConfig(mappingRow?.config)
+  const includeHse = mappingConfig.modules.includes('hse')
+  const includeIetr = mappingConfig.modules.includes('ietr')
+
+  // Só estratifica por dimensões que o relatório sabe agrupar (campos presentes
+  // em CollabRow). Colunas customizadas do CSV não têm coluna própria em
+  // `collaborators`, então não podem estratificar o PPTX.
+  const stratumLabels: Record<string, string> = {}
+  for (const key of mappingConfig.stratification_columns) {
+    if (!SUPPORTED_STRATUM_KEYS.has(key)) continue
+    stratumLabels[key] = mappingConfig.field_labels[key] ?? STRATUM_LABELS[key] ?? key
+  }
+  if (Object.keys(stratumLabels).length === 0) {
+    Object.assign(stratumLabels, STRATUM_LABELS)
+  }
+
+  const effectiveStratum = stratumLabels[stratum] ? stratum : Object.keys(stratumLabels)[0]
 
   // 1. Fetch collaborators
   let collabQuery = supabase
@@ -424,23 +417,25 @@ export async function POST(request: NextRequest) {
     c => c.which_disability_dec,
   )
 
-  // 4. Overall HSE
-  const allHseScores = Array.from(respMap.values()).map(r => r.hse_score)
-  const hseAvg = avg(allHseScores)
+  // 4. Overall HSE — apenas se o módulo estiver ativo na configuração
+  const allHseScores = includeHse ? Array.from(respMap.values()).map(r => r.hse_score) : []
+  const hseAvg = includeHse ? avg(allHseScores) : null
   const validHse = allHseScores.filter((s): s is number => s !== null)
-  const hseClassDist = [
+  const hseClassDist = includeHse ? [
     { name: 'Alto risco',     value: validHse.filter(s => s >= 2.5).length },
     { name: 'Risco moderado', value: validHse.filter(s => s >= 1.5 && s < 2.5).length },
     { name: 'Baixo risco',    value: validHse.filter(s => s < 1.5).length },
-  ]
+  ] : []
 
   // Domain averages
   const domainAccum: Record<string, number[]> = {}
-  for (const r of respMap.values()) {
-    for (const d of (r.hse_domains ?? [])) {
-      if (!d.domain || d.score === undefined) continue
-      if (!domainAccum[d.domain]) domainAccum[d.domain] = []
-      domainAccum[d.domain].push(d.score)
+  if (includeHse) {
+    for (const r of respMap.values()) {
+      for (const d of (r.hse_domains ?? [])) {
+        if (!d.domain || d.score === undefined) continue
+        if (!domainAccum[d.domain]) domainAccum[d.domain] = []
+        domainAccum[d.domain].push(d.score)
+      }
     }
   }
   const domainAvgs = HSE_DOMAINS
@@ -448,21 +443,22 @@ export async function POST(request: NextRequest) {
     .filter(d => d.avg !== null)
     .map(d => ({ domain: d.domain, avg: d.avg as number }))
 
-  // 5. Per-stratum stats (always generate all configured stratification dimensions)
-  const stratumRows = buildStratumRows(collabsWithAge, respMap, stratum, excludePj)
-  const stratumKeysInOrder = Object.keys(STRATUM_LABELS)
-  const sliceKeys = stratumKeysInOrder
-  const stratifiedHse = sliceKeys.map((k) => ({
+  // 5. Per-stratum stats — dimensões vêm da configuração do mapeamento
+  const sliceKeys = Object.keys(stratumLabels)
+  const stratumRows = includeHse ? buildStratumRows(collabsWithAge, respMap, effectiveStratum) : []
+  const stratifiedHse = includeHse ? sliceKeys.map((k) => ({
     stratum: k,
-    stratumLabel: STRATUM_LABELS[k],
-    stratumRows: buildStratumRows(collabsWithAge, respMap, k, excludePj),
-  }))
+    stratumLabel: stratumLabels[k],
+    stratumRows: buildStratumRows(collabsWithAge, respMap, k),
+  })) : []
 
-  // 6. IETR stats
-  const allRemoteScores = Array.from(respMap.values())
-    .map(r => r.remote_score)
-    .filter((s): s is number => s !== null)
-  const hasIetr = allRemoteScores.length > 0
+  // 6. IETR stats — apenas se o módulo estiver ativo na configuração
+  const allRemoteScores = includeIetr
+    ? Array.from(respMap.values())
+        .map(r => r.remote_score)
+        .filter((s): s is number => s !== null)
+    : []
+  const hasIetr = includeIetr && allRemoteScores.length > 0
   const ietrAvg = hasIetr ? avg(allRemoteScores) : null
   const ietrClassDist = hasIetr ? [
     { name: 'Situação de risco',  value: allRemoteScores.filter(s => s < 3.0).length },
@@ -471,12 +467,14 @@ export async function POST(request: NextRequest) {
   ] : []
 
   const ietrDomainAccum: Record<string, number[]> = {}
-  for (const r of respMap.values()) {
-    for (const d of (r.remote_domains ?? [])) {
-      if (!d.domain || d.score === undefined) continue
-      const normalizedDomain = normalizeIetrDomain(d.domain)
-      if (!ietrDomainAccum[normalizedDomain]) ietrDomainAccum[normalizedDomain] = []
-      ietrDomainAccum[normalizedDomain].push(d.score)
+  if (includeIetr) {
+    for (const r of respMap.values()) {
+      for (const d of (r.remote_domains ?? [])) {
+        if (!d.domain || d.score === undefined) continue
+        const normalizedDomain = normalizeIetrDomain(d.domain)
+        if (!ietrDomainAccum[normalizedDomain]) ietrDomainAccum[normalizedDomain] = []
+        ietrDomainAccum[normalizedDomain].push(d.score)
+      }
     }
   }
   const ietrDomainAvgs = IETR_DOMAINS
@@ -484,19 +482,19 @@ export async function POST(request: NextRequest) {
     .filter(d => d.avg !== null)
     .map(d => ({ domain: d.domain, avg: d.avg as number }))
 
-  const ietrStratumRows = buildIetrStratumRows(collabsWithAge, respMap, stratum, excludePj)
-  const stratifiedIetr = sliceKeys.map((k) => ({
+  const ietrStratumRows = includeIetr ? buildIetrStratumRows(collabsWithAge, respMap, effectiveStratum) : []
+  const stratifiedIetr = includeIetr ? sliceKeys.map((k) => ({
     stratum: k,
-    stratumLabel: STRATUM_LABELS[k],
-    ietrStratumRows: buildIetrStratumRows(collabsWithAge, respMap, k, excludePj),
-  }))
+    stratumLabel: stratumLabels[k],
+    ietrStratumRows: buildIetrStratumRows(collabsWithAge, respMap, k),
+  })) : []
 
   // 7. Build payload
   const payload: ReportPayload = {
     clientName:        clientName.trim(),
     clientDescription: clientDescription?.trim() ?? '',
-    stratum,
-    stratumLabel:      STRATUM_LABELS[stratum],
+    stratum:           effectiveStratum,
+    stratumLabel:      stratumLabels[effectiveStratum],
     generatedAt:       new Date().toISOString(),
     filters,
     totalCollabs:      collabs.length,
