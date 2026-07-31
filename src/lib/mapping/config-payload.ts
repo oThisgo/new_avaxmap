@@ -195,7 +195,20 @@ export function buildMappingConfig(
     : normalizeStringList(payload.demographic_columns)
   ).filter((column) => !sensitiveColumns.has(column))
 
-  const columnDisplayNames = normalizeColumnDisplayNames(payload.column_display_names, csvColumns)
+  // O nome de exibição digitado no card da coluna é a fonte de verdade do rótulo.
+  // Sem esta derivação ele só valeria quando o cliente também enviasse
+  // `column_display_names`, e renomear uma coluna não teria efeito nenhum no
+  // dashboard nem nos relatórios.
+  const displayNamesFromProfiles: Record<string, string> = {}
+  for (const profile of columnProfiles) {
+    if (profile.display_name && profile.display_name !== profile.source_name) {
+      displayNamesFromProfiles[profile.source_name] = profile.display_name
+    }
+  }
+  const columnDisplayNames = {
+    ...normalizeColumnDisplayNames(payload.column_display_names, csvColumns),
+    ...displayNamesFromProfiles,
+  }
 
   const hseOverrides = normalizeQuestionOverrides(
     payload.hse_question_order,

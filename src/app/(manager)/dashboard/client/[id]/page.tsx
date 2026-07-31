@@ -209,6 +209,16 @@ export default function MappingConfigPage() {
     setConfigSaving(true)
 
     try {
+      // Sem cards de coluna não há de onde derivar filtros/demográficos: nesse caso
+      // os valores já persistidos são reenviados intactos, senão salvar apenas os
+      // módulos zeraria a configuração de dashboard do mapeamento.
+      const hasColumnCards = configDraft.column_profiles.length > 0
+      const preservedSelections = hasColumnCards ? {} : {
+        dashboard_filters: asStringArray(mapping.config?.dashboard_filters, []),
+        demographic_columns: asStringArray(mapping.config?.demographic_columns, []),
+        stratification_columns: asStringArray(mapping.config?.stratification_columns, []),
+      }
+
       const res = await fetch(`/api/client/mappings/${mappingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -217,6 +227,7 @@ export default function MappingConfigPage() {
           modules: configDraft.modules,
           credential_column: configDraft.credential_column,
           column_profiles: configDraft.column_profiles,
+          ...preservedSelections,
           column_display_names: Object.fromEntries(
             configDraft.column_profiles.map((card) => [card.source_name, card.display_name]),
           ),
