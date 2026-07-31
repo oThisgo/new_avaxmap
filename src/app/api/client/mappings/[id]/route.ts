@@ -172,19 +172,27 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
     targetManagerId = insertedManager.id
   }
 
-  await supabase
+  const { error: tenantError } = await supabase
     .from('tenant_managers')
     .upsert(
       { tenant_id: result.mapping.tenant_id, manager_id: targetManagerId, role: managerRole },
       { onConflict: 'tenant_id,manager_id', ignoreDuplicates: false },
     )
 
-  await supabase
+  if (tenantError) {
+    return NextResponse.json({ error: 'Falha ao vincular gestor ao tenant.' }, { status: 500 })
+  }
+
+  const { error: mappingError } = await supabase
     .from('mapping_managers')
     .upsert(
       { mapping_id: id, manager_id: targetManagerId, role: managerRole },
       { onConflict: 'mapping_id,manager_id', ignoreDuplicates: false },
     )
+
+  if (mappingError) {
+    return NextResponse.json({ error: 'Falha ao vincular gestor ao mapeamento.' }, { status: 500 })
+  }
 
   return NextResponse.json({
     ok: true,
