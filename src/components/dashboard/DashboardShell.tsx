@@ -8,6 +8,7 @@ import OverviewTab from './tabs/OverviewTab'
 import DemographicsTab from './tabs/DemographicsTab'
 import HseTab from './tabs/HseTab'
 import RemoteTab from './tabs/RemoteTab'
+import MentalHealthTab from './tabs/MentalHealthTab'
 import InsightsTab from './tabs/InsightsTab'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import ReportRiskModal from './ReportRiskModal'
@@ -45,6 +46,7 @@ const TABS = [
   { id: 'demographics', label: 'Dados Demográficos' },
   { id: 'hse', label: 'HSE por Domínio' },
   { id: 'remote', label: 'Trabalho Remoto' },
+  { id: 'mental_health', label: 'Saúde Mental' },
   { id: 'insights', label: '✦ Insights' },
 ] as const
 
@@ -148,6 +150,7 @@ export default function DashboardShell() {
         if (modules.includes('sociodemografico')) dynamicTabs.push({ id: 'demographics', label: 'Dados Demográficos' })
         if (modules.includes('hse')) dynamicTabs.push({ id: 'hse', label: 'HSE por Domínio' })
         if (modules.includes('ietr')) dynamicTabs.push({ id: 'remote', label: 'Trabalho Remoto' })
+        if (modules.includes('saude_mental')) dynamicTabs.push({ id: 'mental_health', label: 'Saúde Mental' })
         dynamicTabs.push({ id: 'insights', label: '✦ Insights' })
         setTabs(dynamicTabs)
 
@@ -539,6 +542,7 @@ export default function DashboardShell() {
             {activeTab === 'demographics' && <DemographicsTab query={buildQuery()} chartKeys={dashboardConfig.demographic_columns} chartLabels={dashboardConfig.field_labels} />}
             {activeTab === 'hse' && <HseTab query={buildQuery()} />}
             {activeTab === 'remote' && <RemoteTab query={buildQuery()} />}
+            {activeTab === 'mental_health' && <MentalHealthTab query={buildQuery()} />}
             {activeTab === 'insights' && <InsightsTab query={buildQuery()} isSuperuser={canSuperuser} />}
           </motion.div>
         </AnimatePresence>

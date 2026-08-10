@@ -13,12 +13,27 @@ import { AlertPresence } from '@/components/ui/alert'
 import { Textarea } from '@/components/ui/input'
 import { HSE_QUESTIONS, HSE_SCALE_OPTIONS, HSE_CODES, type HseQuestionDefinition } from '@/lib/analytics/hse-definition'
 import { IETR_QUESTIONS, IETR_SCALE_OPTIONS, IETR_CODES, type IetrQuestionDefinition } from '@/lib/analytics/ietr-definition'
+import {
+  MENTAL_HEALTH_CODES,
+  MENTAL_HEALTH_QUESTIONS,
+  type MentalHealthQuestion,
+} from '@/lib/analytics/mental-health-definition'
+import {
+  createEmptyMentalHealthAnswers,
+  type MentalHealthAnswers,
+} from '@/lib/analytics/mental-health'
+import {
+  MentalHealthModule,
+  countMentalHealthRequired,
+  getMentalHealthPending,
+  type MentalHealthNoneState,
+} from '@/components/forms/MentalHealthModule'
 import type { MappingModuleKey } from '@/lib/mapping/config'
 import { applyQuestionOverrides } from '@/lib/mapping/question-overrides'
 
 type AnswerMap = Record<string, string>
 
-type ModuleId = 'socio' | 'hse' | 'ietr'
+type ModuleId = 'socio' | 'hse' | 'ietr' | 'saude_mental'
 type MobileModule = 'hse' | 'ietr'
 
 interface SocioData {
@@ -235,6 +250,8 @@ type MappingRuntimeConfig = {
   hse_question_text_overrides: Record<string, string>
   ietr_question_order: string[]
   ietr_question_text_overrides: Record<string, string>
+  mental_health_question_order: string[]
+  mental_health_question_text_overrides: Record<string, string>
 }
 
 export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Readonly<IetrFormProps>) {
@@ -247,6 +264,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     socio: false,
     hse: false,
     ietr: false,
+    saude_mental: false,
   })
 
   const [mobileModule, setMobileModule] = useState<MobileModule>('hse')
@@ -265,6 +283,8 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
   const [hseAnswers, setHseAnswers] = useState<AnswerMap>({})
   const [answers, setAnswers] = useState<AnswerMap>({})
+  const [mentalHealth, setMentalHealth] = useState<MentalHealthAnswers>(() => createEmptyMentalHealthAnswers())
+  const [mentalHealthNone, setMentalHealthNone] = useState<MentalHealthNoneState>({})
   const [jobObservations, setJobObservations] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -278,6 +298,8 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     hse_question_text_overrides: {},
     ietr_question_order: IETR_CODES,
     ietr_question_text_overrides: {},
+    mental_health_question_order: MENTAL_HEALTH_CODES,
+    mental_health_question_text_overrides: {},
   })
 
   const hseQuestions = useMemo(
@@ -295,9 +317,25 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     [mappingConfig.ietr_question_order, mappingConfig.ietr_question_text_overrides],
   )
 
+  const mentalHealthQuestions = useMemo(
+    () => applyQuestionOverrides<MentalHealthQuestion>(MENTAL_HEALTH_QUESTIONS, {
+      order: mappingConfig.mental_health_question_order,
+      text: mappingConfig.mental_health_question_text_overrides,
+    }),
+    [mappingConfig.mental_health_question_order, mappingConfig.mental_health_question_text_overrides],
+  )
+
   const hasSocioModule = mappingConfig.modules.includes('sociodemografico')
   const hasHseModule = mappingConfig.modules.includes('hse')
   const hasIetrModule = mappingConfig.modules.includes('ietr')
+  const hasMentalHealthModule = mappingConfig.modules.includes('saude_mental')
+
+  const mentalHealthPending = hasMentalHealthModule
+    ? getMentalHealthPending(mentalHealthQuestions, mentalHealth, mentalHealthNone)
+    : []
+  const mentalHealthRequiredCount = hasMentalHealthModule
+    ? countMentalHealthRequired(mentalHealthQuestions, mentalHealth)
+    : 0
 
   const requiresIetr = hasIetrModule && (!hasSocioModule || !/^n[aã]o/i.test(socio.remote_status.trim()))
   const effectiveIetrQuestions = useMemo(
@@ -305,8 +343,11 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     [requiresIetr, ietrQuestions],
   )
 
-  const totalQuestions = hseQuestions.length + effectiveIetrQuestions.length
-  const answeredCount = Object.keys(hseAnswers).length + Object.keys(answers).filter((key) => effectiveIetrQuestions.some((q) => q.code === key)).length
+  const totalQuestions = hseQuestions.length + effectiveIetrQuestions.length + mentalHealthRequiredCount
+  const answeredCount =
+    Object.keys(hseAnswers).length
+    + Object.keys(answers).filter((key) => effectiveIetrQuestions.some((q) => q.code === key)).length
+    + Math.max(0, mentalHealthRequiredCount - mentalHealthPending.length)
   const completionPct = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 100
 
   const unansweredHse = hasHseModule ? hseQuestions.filter((q) => !hseAnswers[q.code]) : []
@@ -379,6 +420,12 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
             : IETR_CODES,
           ietr_question_text_overrides: json.config.ietr_question_text_overrides && typeof json.config.ietr_question_text_overrides === 'object'
             ? json.config.ietr_question_text_overrides
+            : {},
+          mental_health_question_order: Array.isArray(json.config.mental_health_question_order) && json.config.mental_health_question_order.length > 0
+            ? json.config.mental_health_question_order
+            : MENTAL_HEALTH_CODES,
+          mental_health_question_text_overrides: json.config.mental_health_question_text_overrides && typeof json.config.mental_health_question_text_overrides === 'object'
+            ? json.config.mental_health_question_text_overrides
             : {},
         })
       })
@@ -463,7 +510,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       return
     }
 
-    const unansweredTotal = unansweredHse.length + unansweredIetr.length
+    const unansweredTotal = unansweredHse.length + unansweredIetr.length + mentalHealthPending.length
     if (unansweredTotal > 0) {
       goToFirstUnanswered()
       reportError(`Responda todas as questões obrigatórias antes de enviar. Faltam ${unansweredTotal}.`)
@@ -492,6 +539,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
         ietrAnswers: (hasIetrModule && requiresIetr)
           ? ietrQuestions.map((q) => ({ questionCode: q.code, rawValue: answers[q.code] }))
           : [],
+        mentalHealth: hasMentalHealthModule ? mentalHealth : null,
         jobObservations: jobObservations.trim() || null,
       }
 
@@ -538,6 +586,10 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
         setMobileModule('ietr')
         setMobilePage(Math.max(0, Math.floor(idx / MOBILE_QUESTIONS_PER_PAGE)))
       }
+      return
+    }
+    if (mentalHealthPending.length > 0) {
+      setOpenModules((prev) => ({ ...prev, saude_mental: true }))
     }
   }
 
@@ -673,6 +725,20 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     )
   }
 
+  function renderMentalHealthFields() {
+    return (
+      <MentalHealthModule
+        questions={mentalHealthQuestions}
+        answers={mentalHealth}
+        onAnswersChange={setMentalHealth}
+        noneState={mentalHealthNone}
+        onNoneStateChange={setMentalHealthNone}
+        disabled={isSubmitting}
+        highlightCodes={error ? mentalHealthPending.map((q) => q.code) : []}
+      />
+    )
+  }
+
   function renderDesktopModules() {
     return (
       <>
@@ -722,6 +788,19 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
             </div>
           )}
         </CollapsibleModule>
+
+        {hasMentalHealthModule && (
+          <CollapsibleModule
+            id="saude_mental"
+            title="Módulo Saúde Mental"
+            subtitle="Comportamento e emoção, fatores ambientais e percepção sobre saúde e qualidade de vida"
+            isOpen={openModules.saude_mental}
+            onToggle={toggleModule}
+            theme={T}
+          >
+            {renderMentalHealthFields()}
+          </CollapsibleModule>
+        )}
       </>
     )
   }
@@ -890,6 +969,18 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
                     Próxima
                   </button>
                 </div>
+                </section>
+              )}
+
+              {hasMentalHealthModule && (
+                <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
+                  <div className="mb-5 space-y-1">
+                    <h2 className="text-xl font-semibold" style={{ color: T.text }}>Módulo Saúde Mental</h2>
+                    <p className="text-sm" style={{ color: T.textFaint }}>
+                      Comportamento e emoção, fatores ambientais e percepção sobre saúde e qualidade de vida.
+                    </p>
+                  </div>
+                  {renderMentalHealthFields()}
                 </section>
               )}
             </>

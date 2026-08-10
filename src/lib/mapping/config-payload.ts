@@ -1,6 +1,8 @@
 import { normalizeQuestionOverrides } from './question-overrides'
+import { MAPPING_MODULE_KEYS } from './config'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
 
 /**
  * Payload de configuração aceito tanto na criação (POST /api/client/mappings)
@@ -30,6 +32,8 @@ export type MappingConfigPayload = {
   hse_question_text_overrides?: Record<string, string>
   ietr_question_order?: string[]
   ietr_question_text_overrides?: Record<string, string>
+  mental_health_question_order?: string[]
+  mental_health_question_text_overrides?: Record<string, string>
 }
 
 export type NormalizedColumnProfile = {
@@ -56,7 +60,7 @@ function normalizeStringList(value: unknown): string[] {
 }
 
 export function normalizeModules(modules: unknown): string[] {
-  const allowed = new Set(['sociodemografico', 'hse', 'ietr'])
+  const allowed = new Set<string>(MAPPING_MODULE_KEYS)
   return normalizeStringList(modules)
     .map((m) => m.toLowerCase())
     .filter((m) => allowed.has(m))
@@ -220,6 +224,11 @@ export function buildMappingConfig(
     payload.ietr_question_text_overrides,
     IETR_CODES,
   )
+  const mentalHealthOverrides = normalizeQuestionOverrides(
+    payload.mental_health_question_order,
+    payload.mental_health_question_text_overrides,
+    MENTAL_HEALTH_CODES,
+  )
 
   return {
     csvColumns,
@@ -237,6 +246,8 @@ export function buildMappingConfig(
       hse_question_text_overrides: hseOverrides.text,
       ietr_question_order: ietrOverrides.order,
       ietr_question_text_overrides: ietrOverrides.text,
+      mental_health_question_order: mentalHealthOverrides.order,
+      mental_health_question_text_overrides: mentalHealthOverrides.text,
       report: 'dynamic',
     },
   }

@@ -11,9 +11,13 @@ import { AlertPresence } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
-import { HSE_QUESTIONS, HSE_CODES } from '@/lib/analytics/hse-definition'
-import { IETR_QUESTIONS, IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { HSE_CODES } from '@/lib/analytics/hse-definition'
+import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
 import { QuestionOrderEditor } from '@/components/mapping/QuestionOrderEditor'
+import { MODULE_DEFS, QUESTION_EDITABLE_MODULES } from '@/components/mapping/MappingConfigEditor'
+
+type QuestionEditableModuleKey = keyof typeof QUESTION_EDITABLE_MODULES
 
 type MappingStatus = 'draft' | 'active'
 type ManagerRole = 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
@@ -61,36 +65,6 @@ type ColumnProfileCard = {
   locked: boolean
   locked_reason: string | null
 }
-
-type ModuleDef = {
-  key: 'sociodemografico' | 'hse' | 'ietr'
-  title: string
-  description: string
-  domains?: readonly string[]
-  questionCount?: number
-}
-
-const MODULE_DEFS: readonly ModuleDef[] = [
-  {
-    key: 'sociodemografico',
-    title: 'Sociodemográfico',
-    description: 'Perfil dos colaboradores (idade, gênero, raça/cor, escolaridade, estado civil, deficiência) para cruzamentos e filtros no dashboard. Não tem perguntas de risco — os campos exibidos dependem das colunas do CSV e são configurados na etapa "Estrutura do CSV".',
-  },
-  {
-    key: 'hse',
-    title: 'HSE — Riscos psicossociais',
-    description: 'Baseado no HSE Management Standards Indicator Tool. Mede a percepção dos colaboradores em 7 domínios de risco psicossocial no trabalho, com escala de 5 pontos.',
-    domains: ['Demandas', 'Controle', 'Apoio da Liderança', 'Apoio dos Colegas', 'Relacionamentos', 'Cargo', 'Comunicação e Mudanças'],
-    questionCount: HSE_QUESTIONS.length,
-  },
-  {
-    key: 'ietr',
-    title: 'IETR — Trabalho remoto',
-    description: 'Avalia a experiência de quem trabalha remotamente em 8 domínios, com escala de 5 pontos. Só é aplicado a colaboradores que informam trabalhar remotamente no módulo sociodemográfico.',
-    domains: ['Demandas', 'Controle', 'Suporte', 'Comunicação', 'Papel', 'Limites', 'Ambiente', 'Produtividade'],
-    questionCount: IETR_QUESTIONS.length,
-  },
-] as const
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: MappingStatus; label: string }> = [
   { value: 'draft', label: 'Rascunho' },
@@ -213,10 +187,18 @@ export default function CreateMappingPage() {
   const [columnCards, setColumnCards] = useState<ColumnProfileCard[]>([])
   const [selectedModules, setSelectedModules] = useState<string[]>(['sociodemografico', 'hse', 'ietr'])
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
-  const [hseOrder, setHseOrder] = useState<string[]>(HSE_CODES)
-  const [hseTextOverrides, setHseTextOverrides] = useState<Record<string, string>>({})
-  const [ietrOrder, setIetrOrder] = useState<string[]>(IETR_CODES)
-  const [ietrTextOverrides, setIetrTextOverrides] = useState<Record<string, string>>({})
+  // Ordem e enunciados por módulo com banco de perguntas — um estado só, para
+  // que incluir um novo módulo editável não exija novo par de useState.
+  const [questionOrders, setQuestionOrders] = useState<Record<QuestionEditableModuleKey, string[]>>({
+    hse: HSE_CODES,
+    ietr: IETR_CODES,
+    saude_mental: MENTAL_HEALTH_CODES,
+  })
+  const [questionTexts, setQuestionTexts] = useState<Record<QuestionEditableModuleKey, Record<string, string>>>({
+    hse: {},
+    ietr: {},
+    saude_mental: {},
+  })
   const [managers, setManagers] = useState<ManagerInput[]>([{ name: '', email: '', role: 'manager' }])
   const tcleEditorRef = useRef<HTMLDivElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
@@ -478,10 +460,12 @@ export default function CreateMappingPage() {
           column_profiles: columnCards,
           credential_column: credentialColumn || null,
           column_mapping: columnMapping,
-          hse_question_order: hseOrder,
-          hse_question_text_overrides: hseTextOverrides,
-          ietr_question_order: ietrOrder,
-          ietr_question_text_overrides: ietrTextOverrides,
+          hse_question_order: questionOrders.hse,
+          hse_question_text_overrides: questionTexts.hse,
+          ietr_question_order: questionOrders.ietr,
+          ietr_question_text_overrides: questionTexts.ietr,
+          mental_health_question_order: questionOrders.saude_mental,
+          mental_health_question_text_overrides: questionTexts.saude_mental,
           managers: cleanManagers,
         }),
       })
@@ -559,7 +543,11 @@ export default function CreateMappingPage() {
             <div className="mt-4 space-y-3">
               {MODULE_DEFS.map((mod) => {
                 const enabled = selectedModules.includes(mod.key)
-                const hasQuestions = mod.key === 'hse' || mod.key === 'ietr'
+                const questionEditor = mod.key in QUESTION_EDITABLE_MODULES
+                  ? QUESTION_EDITABLE_MODULES[mod.key as QuestionEditableModuleKey]
+                  : null
+                const editorKey = mod.key as QuestionEditableModuleKey
+                const hasQuestions = questionEditor !== null
                 const isExpanded = expandedModule === mod.key
 
                 return (
@@ -606,7 +594,7 @@ export default function CreateMappingPage() {
                       </div>
                     )}
 
-                    {hasQuestions && (
+                    {questionEditor && (
                       <div
                         style={{
                           maxHeight: enabled && isExpanded ? '20000px' : '0px',
@@ -616,33 +604,21 @@ export default function CreateMappingPage() {
                         }}
                       >
                         <div className="mt-4">
-                          {mod.key === 'hse' ? (
-                            <QuestionOrderEditor
-                              questions={HSE_QUESTIONS}
-                              order={hseOrder}
-                              textOverrides={hseTextOverrides}
-                              onOrderChange={setHseOrder}
-                              onTextChange={(code, text) => setHseTextOverrides((prev) => ({ ...prev, [code]: text }))}
-                              onResetText={(code) => setHseTextOverrides((prev) => {
-                                const next = { ...prev }
-                                delete next[code]
-                                return next
-                              })}
-                            />
-                          ) : (
-                            <QuestionOrderEditor
-                              questions={IETR_QUESTIONS}
-                              order={ietrOrder}
-                              textOverrides={ietrTextOverrides}
-                              onOrderChange={setIetrOrder}
-                              onTextChange={(code, text) => setIetrTextOverrides((prev) => ({ ...prev, [code]: text }))}
-                              onResetText={(code) => setIetrTextOverrides((prev) => {
-                                const next = { ...prev }
-                                delete next[code]
-                                return next
-                              })}
-                            />
-                          )}
+                          <QuestionOrderEditor
+                            questions={questionEditor.questions}
+                            order={questionOrders[editorKey]}
+                            textOverrides={questionTexts[editorKey]}
+                            onOrderChange={(order) => setQuestionOrders((prev) => ({ ...prev, [editorKey]: order }))}
+                            onTextChange={(code, text) => setQuestionTexts((prev) => ({
+                              ...prev,
+                              [editorKey]: { ...prev[editorKey], [code]: text },
+                            }))}
+                            onResetText={(code) => setQuestionTexts((prev) => {
+                              const next = { ...prev[editorKey] }
+                              delete next[code]
+                              return { ...prev, [editorKey]: next }
+                            })}
+                          />
                         </div>
                       </div>
                     )}

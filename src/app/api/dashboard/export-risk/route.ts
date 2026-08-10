@@ -6,6 +6,15 @@ import { normalizeMappingConfig } from '@/lib/mapping/config'
 import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
 import { IETR_CODES, IETR_DOMAIN_WEIGHTS } from '@/lib/analytics/ietr-definition'
+import { MENTAL_HEALTH_FIELD_NAMES } from '@/lib/analytics/mental-health-definition'
+import {
+  MENTAL_HEALTH_COMPONENT_WEIGHTS,
+  type MentalHealthAnswers,
+  type MentalHealthComponentKey,
+  type MentalHealthResult,
+} from '@/lib/analytics/mental-health'
+
+const MENTAL_HEALTH_COMPONENT_KEYS = Object.keys(MENTAL_HEALTH_COMPONENT_WEIGHTS) as MentalHealthComponentKey[]
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const HSE_CODES = [
@@ -80,6 +89,10 @@ interface ResponseData {
   remote_domains: DomainEntry[]
   remote_score: number | null
   remote_class: string | null
+  mental_health_answers: MentalHealthAnswers | null
+  mental_health_derived: MentalHealthResult | null
+  mental_health_score: number | null
+  mental_health_class: string | null
 }
 
 interface CollabData {
@@ -124,6 +137,24 @@ function buildCsvRow(idx: number, collab: CollabData, resp: ResponseData | undef
   const ietrAnswers = REMOTE_CODES.map((c) => answeredIetr ? csvCell(answerMap.get(c) ?? '') : '')
   const ietrDoms = IETR_DOMAINS.map((d) => answeredIetr ? csvCell(ietrDomMap.get(d)?.toFixed(2) ?? '') : '')
 
+  // Saúde Mental: as respostas brutas dos 73 campos vão como colunas próprias e
+  // as notas por componente saem do derivado — a mesma estrutura que alimenta o
+  // dashboard, sem tabela intermediária.
+  const mentalHealth = resp?.mental_health_derived ?? null
+  const mhAnswers = resp?.mental_health_answers ?? null
+  const answeredMentalHealth = mhAnswers !== null
+  const mhRawCells = MENTAL_HEALTH_FIELD_NAMES.map((field) => {
+    if (!answeredMentalHealth) return ''
+    const value = mhAnswers?.[field]
+    if (value === null || value === undefined) return ''
+    if (typeof value === 'boolean') return value ? '1' : '0'
+    return csvCell(value)
+  })
+  const mhComponentCells = MENTAL_HEALTH_COMPONENT_KEYS.map((key) => {
+    const component = mentalHealth?.components?.find((c) => c.key === key)
+    return component?.score !== null && component?.score !== undefined ? csvCell(component.score) : ''
+  })
+
   const hseScore = answeredHse ? csvCell(resp?.hse_score?.toFixed(2) ?? '') : ''
   const hseClass = answeredHse ? csvCell(resp?.hse_class ?? '') : ''
   const ietrStatus = answeredIetr ? 'Sim' : 'Não'
@@ -148,6 +179,12 @@ function buildCsvRow(idx: number, collab: CollabData, resp: ResponseData | undef
     ...ietrDoms,
     ietrScore,
     ietrClass,
+    answeredMentalHealth ? 'Sim' : 'Não',
+    ...mhRawCells,
+    ...mhComponentCells,
+    mentalHealth?.suicide?.divisor ?? '',
+    typeof resp?.mental_health_score === 'number' ? csvCell(resp.mental_health_score.toFixed(2)) : '',
+    csvCell(resp?.mental_health_class ?? ''),
   ]
 
   return cells.join(';')
@@ -195,7 +232,7 @@ export async function GET(request: NextRequest) {
   if (allIds.length > 0) {
     const { data: responses, error: respErr } = await supabase
       .from('responses')
-      .select('collaborator_id, answers, hse_domains, hse_score, hse_class, remote_domains, remote_score, remote_class')
+      .select('collaborator_id, answers, hse_domains, hse_score, hse_class, remote_domains, remote_score, remote_class, mental_health_answers, mental_health_derived, mental_health_score, mental_health_class')
       .in('collaborator_id', allIds)
     if (respErr) return NextResponse.json({ error: respErr.message }, { status: 500 })
 
@@ -208,6 +245,10 @@ export async function GET(request: NextRequest) {
         remote_domains: (r.remote_domains as DomainEntry[] | null) ?? [],
         remote_score: typeof r.remote_score === 'number' ? r.remote_score : null,
         remote_class: r.remote_class ?? null,
+        mental_health_answers: (r.mental_health_answers as MentalHealthAnswers | null) ?? null,
+        mental_health_derived: (r.mental_health_derived as MentalHealthResult | null) ?? null,
+        mental_health_score: typeof r.mental_health_score === 'number' ? r.mental_health_score : null,
+        mental_health_class: r.mental_health_class ?? null,
       })
     }
   }
@@ -226,6 +267,10 @@ export async function GET(request: NextRequest) {
     ...REMOTE_CODES,
     ...ietrDomCols,
     'ietr_score', 'ietr_classificacao',
+    'respondeu_saude_mental',
+    ...MENTAL_HEALTH_FIELD_NAMES,
+    ...MENTAL_HEALTH_COMPONENT_KEYS.map((key) => `sm_nota_${key}`),
+    'sm_divisor_suicidio', 'sm_indice', 'sm_classificacao',
   ]
 
   const rows = [

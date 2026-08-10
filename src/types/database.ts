@@ -1,8 +1,11 @@
+import type { MentalHealthAnswers, MentalHealthClassification, MentalHealthResult } from '@/lib/analytics/mental-health'
+
 export type ModuleType = 'HSE' | 'REMOTE'
 export type MappingStatus = 'draft' | 'active' | 'archived'
 
 export type HseClass = 'Baixo risco' | 'Risco moderado' | 'Alto risco'
 export type RemoteClass = 'Condição adequada' | 'Zona de atenção' | 'Situação de risco'
+export type MentalHealthClass = MentalHealthClassification
 
 // ─── Tabelas ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +68,13 @@ export interface Response {
   hse_class?: HseClass | null
   remote_score?: number | null
   remote_class?: RemoteClass | null
+  // Saúde Mental: respostas brutas + cache do cálculo derivado. Não há tabela de
+  // fórmulas — `mental_health_derived` é sempre reconstituível a partir de
+  // `mental_health_answers` via calculateMentalHealth().
+  mental_health_answers?: MentalHealthAnswers | null
+  mental_health_derived?: MentalHealthResult | null
+  mental_health_score?: number | null
+  mental_health_class?: MentalHealthClass | null
   job_observations?: string | null
   created_at: string
 }

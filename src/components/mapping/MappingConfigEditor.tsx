@@ -8,7 +8,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { HSE_QUESTIONS } from '@/lib/analytics/hse-definition'
 import { IETR_QUESTIONS } from '@/lib/analytics/ietr-definition'
-import { QuestionOrderEditor } from '@/components/mapping/QuestionOrderEditor'
+import { MENTAL_HEALTH_EDITABLE_QUESTIONS, MENTAL_HEALTH_QUESTIONS } from '@/lib/analytics/mental-health-definition'
+import { QuestionOrderEditor, type EditableQuestion } from '@/components/mapping/QuestionOrderEditor'
+import type { MappingModuleKey } from '@/lib/mapping/config'
 
 export type ColumnProfileDraft = {
   source_name: string
@@ -27,17 +29,52 @@ export type MappingConfigDraft = {
   hse_question_text_overrides: Record<string, string>
   ietr_question_order: string[]
   ietr_question_text_overrides: Record<string, string>
+  mental_health_question_order: string[]
+  mental_health_question_text_overrides: Record<string, string>
 }
 
 type ModuleDef = {
-  key: 'sociodemografico' | 'hse' | 'ietr'
+  key: MappingModuleKey
   title: string
   description: string
   domains?: readonly string[]
   questionCount?: number
 }
 
-const MODULE_DEFS: readonly ModuleDef[] = [
+/**
+ * Módulos com banco de perguntas editável, e onde a ordem/enunciados de cada um
+ * ficam no rascunho da configuração. Uma entrada aqui basta para o módulo ganhar
+ * o editor de perguntas — sem JSX duplicado por módulo.
+ */
+export const QUESTION_EDITABLE_MODULES = {
+  hse: {
+    questions: HSE_QUESTIONS as readonly EditableQuestion[],
+    orderKey: 'hse_question_order',
+    textKey: 'hse_question_text_overrides',
+  },
+  ietr: {
+    questions: IETR_QUESTIONS as readonly EditableQuestion[],
+    orderKey: 'ietr_question_order',
+    textKey: 'ietr_question_text_overrides',
+  },
+  saude_mental: {
+    questions: MENTAL_HEALTH_EDITABLE_QUESTIONS as readonly EditableQuestion[],
+    orderKey: 'mental_health_question_order',
+    textKey: 'mental_health_question_text_overrides',
+  },
+} as const satisfies Record<string, {
+  questions: readonly EditableQuestion[]
+  orderKey: keyof MappingConfigDraft
+  textKey: keyof MappingConfigDraft
+}>
+
+type QuestionEditableModuleKey = keyof typeof QUESTION_EDITABLE_MODULES
+
+function isQuestionEditableModule(key: MappingModuleKey): key is QuestionEditableModuleKey {
+  return key in QUESTION_EDITABLE_MODULES
+}
+
+export const MODULE_DEFS: readonly ModuleDef[] = [
   {
     key: 'sociodemografico',
     title: 'Sociodemográfico',
@@ -56,6 +93,17 @@ const MODULE_DEFS: readonly ModuleDef[] = [
     description: 'Avalia a experiência de quem trabalha remotamente em 8 domínios, com escala de 5 pontos. Só é aplicado a colaboradores que informam trabalhar remotamente no módulo sociodemográfico.',
     domains: ['Demandas', 'Controle', 'Suporte', 'Comunicação', 'Papel', 'Limites', 'Ambiente', 'Produtividade'],
     questionCount: IETR_QUESTIONS.length,
+  },
+  {
+    key: 'saude_mental',
+    title: 'Saúde Mental — pacote de 3 seções',
+    description: 'Pacote com "Comportamento e Emoção" (estresse, sintomas depressivos, indicadores de risco, tabaco, álcool, substâncias e uso de internet), "Fatores Ambientais" (rede de apoio e vivências do último ano) e "Percepção sobre Saúde e Qualidade de Vida". Gera o Índice de Saúde Mental (0–10) a partir de 8 componentes ponderados, com o bloco de risco de suicídio atuando como divisor do índice.',
+    domains: [
+      'Comportamento e Emoção',
+      'Fatores Ambientais',
+      'Percepção sobre Saúde e Qualidade de Vida',
+    ],
+    questionCount: MENTAL_HEALTH_QUESTIONS.length,
   },
 ] as const
 
@@ -104,7 +152,8 @@ export function MappingConfigEditor({
         <div className="mt-3 space-y-3">
           {MODULE_DEFS.map((mod) => {
             const enabled = draft.modules.includes(mod.key)
-            const hasQuestions = mod.key === 'hse' || mod.key === 'ietr'
+            const questionEditor = isQuestionEditableModule(mod.key) ? QUESTION_EDITABLE_MODULES[mod.key] : null
+            const hasQuestions = questionEditor !== null
             const isExpanded = expandedModule === mod.key
 
             return (
@@ -156,7 +205,7 @@ export function MappingConfigEditor({
                   </div>
                 )}
 
-                {hasQuestions && (
+                {questionEditor && (
                   <div
                     style={{
                       maxHeight: enabled && isExpanded ? '20000px' : '0px',
@@ -166,37 +215,23 @@ export function MappingConfigEditor({
                     }}
                   >
                     <div className="mt-4">
-                      {mod.key === 'hse' ? (
-                        <QuestionOrderEditor
-                          questions={HSE_QUESTIONS}
-                          order={draft.hse_question_order}
-                          textOverrides={draft.hse_question_text_overrides}
-                          onOrderChange={(order) => patch({ hse_question_order: order })}
-                          onTextChange={(code, text) => patch({
-                            hse_question_text_overrides: { ...draft.hse_question_text_overrides, [code]: text },
-                          })}
-                          onResetText={(code) => {
-                            const next = { ...draft.hse_question_text_overrides }
-                            delete next[code]
-                            patch({ hse_question_text_overrides: next })
-                          }}
-                        />
-                      ) : (
-                        <QuestionOrderEditor
-                          questions={IETR_QUESTIONS}
-                          order={draft.ietr_question_order}
-                          textOverrides={draft.ietr_question_text_overrides}
-                          onOrderChange={(order) => patch({ ietr_question_order: order })}
-                          onTextChange={(code, text) => patch({
-                            ietr_question_text_overrides: { ...draft.ietr_question_text_overrides, [code]: text },
-                          })}
-                          onResetText={(code) => {
-                            const next = { ...draft.ietr_question_text_overrides }
-                            delete next[code]
-                            patch({ ietr_question_text_overrides: next })
-                          }}
-                        />
-                      )}
+                      <QuestionOrderEditor
+                        questions={questionEditor.questions}
+                        order={draft[questionEditor.orderKey] as string[]}
+                        textOverrides={draft[questionEditor.textKey] as Record<string, string>}
+                        onOrderChange={(order) => patch({ [questionEditor.orderKey]: order })}
+                        onTextChange={(code, text) => patch({
+                          [questionEditor.textKey]: {
+                            ...(draft[questionEditor.textKey] as Record<string, string>),
+                            [code]: text,
+                          },
+                        })}
+                        onResetText={(code) => {
+                          const next = { ...(draft[questionEditor.textKey] as Record<string, string>) }
+                          delete next[code]
+                          patch({ [questionEditor.textKey]: next })
+                        }}
+                      />
                     </div>
                   </div>
                 )}

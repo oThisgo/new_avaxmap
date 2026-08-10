@@ -4,6 +4,12 @@ import { calculateHSE } from '@/lib/analytics/hse'
 import { calculateRemote } from '@/lib/analytics/remote'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
+import {
+  calculateMentalHealth,
+  normalizeMentalHealthAnswers,
+  validateMentalHealthAnswers,
+  type MentalHealthAnswers,
+} from '@/lib/analytics/mental-health'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
 import { encryptFieldOrNull } from '@/lib/security/crypto'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
@@ -31,6 +37,8 @@ interface SubmitBody {
   }
   hseAnswers: SubmitAnswerInput[]
   ietrAnswers: SubmitAnswerInput[]
+  /** Respostas do módulo Saúde Mental, chaveadas pelo nome do campo. */
+  mentalHealth?: Record<string, unknown> | null
   jobObservations?: string | null
 }
 
@@ -121,6 +129,23 @@ function validateRemoteResult(
   }
 
   return null
+}
+
+/**
+ * Normaliza e valida as respostas do módulo Saúde Mental. A normalização já
+ * limpa os campos condicionais ocultos para `null` (§2.4 da especificação), de
+ * modo que resíduo de UI nunca chega ao banco; a validação cobre as invariantes
+ * que dependem de intenção do respondente (§8.0).
+ */
+function prepareMentalHealthAnswers(
+  raw: Record<string, unknown> | null | undefined,
+): { answers: MentalHealthAnswers } | { error: string } {
+  const answers = normalizeMentalHealthAnswers(raw ?? {})
+  const errors = validateMentalHealthAnswers(answers)
+  if (errors.length > 0) {
+    return { error: `Módulo Saúde Mental incompleto. ${errors[0]}` }
+  }
+  return { answers }
 }
 
 function clearCollaboratorCookie(response: NextResponse): NextResponse {
@@ -246,6 +271,16 @@ export async function POST(request: NextRequest) {
   const hasSocioModule = mappingConfig.modules.includes('sociodemografico')
   const hasHseModule = mappingConfig.modules.includes('hse')
   const hasIetrModule = mappingConfig.modules.includes('ietr')
+  const hasMentalHealthModule = mappingConfig.modules.includes('saude_mental')
+
+  let mentalHealthAnswers: MentalHealthAnswers | null = null
+  if (hasMentalHealthModule) {
+    const prepared = prepareMentalHealthAnswers(body.mentalHealth)
+    if ('error' in prepared) {
+      return NextResponse.json({ error: prepared.error }, { status: 400 })
+    }
+    mentalHealthAnswers = prepared.answers
+  }
 
   const requiredSocioKeys: Array<keyof SubmitBody['socio']> = []
   if (hasSocioModule) {
@@ -279,7 +314,7 @@ export async function POST(request: NextRequest) {
 
   const collaboratorResult = await supabase
     .from('collaborators')
-    .select('id, has_answered, mapping_id')
+    .select('id, has_answered, mapping_id, gender')
     .eq('id', collaboratorId)
     .single()
 
@@ -287,6 +322,7 @@ export async function POST(request: NextRequest) {
     id: string
     has_answered: boolean
     mapping_id: string | null
+    gender: string | null
   } | null
   if (!collaborator) {
     return NextResponse.json({ error: 'Colaborador não encontrado.' }, { status: 404 })
@@ -329,6 +365,16 @@ export async function POST(request: NextRequest) {
     weightedScore: d.weightedScore,
   })) : []
 
+  // O limiar de binge alcoólico depende do gênero. Vale o que veio da base do
+  // cliente; na ausência dela, o que o colaborador informou no módulo
+  // sociodemográfico. Gênero desconhecido não descarta a resposta — o motor cai
+  // no limiar conservador.
+  const mentalHealthResult = mentalHealthAnswers
+    ? calculateMentalHealth(mentalHealthAnswers, {
+        gender: collaborator.gender || body.socio.gender || null,
+      })
+    : null
+
   const remoteDomainsJson = hasIetrModule ? remoteResult.domains.map((d) => ({
     domain: d.domain,
     weight: d.weight,
@@ -348,6 +394,10 @@ export async function POST(request: NextRequest) {
       hse_class: hasHseModule ? hseResult.classification : null,
       remote_score: hasIetrModule ? remoteResult.finalScore : null,
       remote_class: hasIetrModule ? remoteResult.classification : null,
+      mental_health_answers: mentalHealthAnswers,
+      mental_health_derived: mentalHealthResult,
+      mental_health_score: mentalHealthResult?.index ?? null,
+      mental_health_class: mentalHealthResult?.classification ?? null,
       job_observations: body.jobObservations?.trim() || null,
     })
     .select('id')

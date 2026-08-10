@@ -14,6 +14,7 @@ import { AlertPresence } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
 import {
   MappingConfigEditor,
   type ColumnProfileDraft,
@@ -97,6 +98,8 @@ function buildDraftFromConfig(mapping: MappingDetail): MappingConfigDraft {
     hse_question_text_overrides: asStringRecord(config.hse_question_text_overrides),
     ietr_question_order: asStringArray(config.ietr_question_order, [...IETR_CODES]),
     ietr_question_text_overrides: asStringRecord(config.ietr_question_text_overrides),
+    mental_health_question_order: asStringArray(config.mental_health_question_order, [...MENTAL_HEALTH_CODES]),
+    mental_health_question_text_overrides: asStringRecord(config.mental_health_question_text_overrides),
   }
 }
 
@@ -239,6 +242,8 @@ export default function MappingConfigPage() {
           hse_question_text_overrides: configDraft.hse_question_text_overrides,
           ietr_question_order: configDraft.ietr_question_order,
           ietr_question_text_overrides: configDraft.ietr_question_text_overrides,
+          mental_health_question_order: configDraft.mental_health_question_order,
+          mental_health_question_text_overrides: configDraft.mental_health_question_text_overrides,
         }),
       })
       const data = await res.json()

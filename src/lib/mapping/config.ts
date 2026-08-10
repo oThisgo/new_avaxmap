@@ -2,8 +2,16 @@ import { toCustomFieldKey } from './column-key'
 import { normalizeQuestionOverrides } from './question-overrides'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
+import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
 
-export type MappingModuleKey = 'sociodemografico' | 'hse' | 'ietr'
+export type MappingModuleKey = 'sociodemografico' | 'hse' | 'ietr' | 'saude_mental'
+
+export const MAPPING_MODULE_KEYS: readonly MappingModuleKey[] = [
+  'sociodemografico',
+  'hse',
+  'ietr',
+  'saude_mental',
+] as const
 
 export const DEFAULT_MODULES: MappingModuleKey[] = ['sociodemografico', 'hse', 'ietr']
 export const DEFAULT_FILTERS: string[] = ['area', 'role', 'employment_type', 'gender', 'race_color']
@@ -59,10 +67,9 @@ function normalizeStringArray(value: unknown): string[] {
 }
 
 function toModuleKey(value: string): MappingModuleKey | null {
-  if (value === 'sociodemografico') return 'sociodemografico'
-  if (value === 'hse') return 'hse'
-  if (value === 'ietr') return 'ietr'
-  return null
+  return (MAPPING_MODULE_KEYS as readonly string[]).includes(value)
+    ? value as MappingModuleKey
+    : null
 }
 
 function unique<T>(items: T[]): T[] {
@@ -119,6 +126,8 @@ export type NormalizedMappingConfig = {
   hse_question_text_overrides: Record<string, string>
   ietr_question_order: string[]
   ietr_question_text_overrides: Record<string, string>
+  mental_health_question_order: string[]
+  mental_health_question_text_overrides: Record<string, string>
 }
 
 export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
@@ -160,6 +169,11 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
 
   const hseOverrides = normalizeQuestionOverrides(config.hse_question_order, config.hse_question_text_overrides, HSE_CODES)
   const ietrOverrides = normalizeQuestionOverrides(config.ietr_question_order, config.ietr_question_text_overrides, IETR_CODES)
+  const mentalHealthOverrides = normalizeQuestionOverrides(
+    config.mental_health_question_order,
+    config.mental_health_question_text_overrides,
+    MENTAL_HEALTH_CODES,
+  )
 
   const headerFieldMap = buildHeaderFieldMap(columnMapping)
   const fieldLabels: Record<string, string> = {}
@@ -202,5 +216,7 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
     hse_question_text_overrides: hseOverrides.text,
     ietr_question_order: ietrOverrides.order,
     ietr_question_text_overrides: ietrOverrides.text,
+    mental_health_question_order: mentalHealthOverrides.order,
+    mental_health_question_text_overrides: mentalHealthOverrides.text,
   }
 }
