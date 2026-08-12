@@ -6,6 +6,9 @@ import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/passwor
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'crypto'
 import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
+import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
+
+const VALID_MANAGER_ROLES = new Set(MANAGER_ROLE_OPTIONS.map((opt) => opt.value))
 
 type MappingPayload = MappingConfigPayload & {
   name?: string
@@ -14,7 +17,7 @@ type MappingPayload = MappingConfigPayload & {
   managers?: Array<{
     name?: string
     email?: string
-    role?: 'owner' | 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
+    role?: ManagerRole
   }>
 }
 
@@ -196,11 +199,12 @@ export async function POST(request: NextRequest) {
     )
 
   const createdCredentials: Array<{ email: string; temporary_password: string }> = []
+  const failedManagers: Array<{ email: string; error: string }> = []
 
   for (const managerInput of managers) {
     const managerEmail = (managerInput.email ?? '').trim().toLowerCase()
     const managerName = (managerInput.name ?? '').trim()
-    const managerRole = managerInput.role ?? 'manager'
+    const managerRole = managerInput.role && VALID_MANAGER_ROLES.has(managerInput.role) ? managerInput.role : 'viewer'
 
     if (!managerEmail || !managerName) continue
 
@@ -211,6 +215,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     let targetManagerId = existingManager?.id ?? null
+    let newTempPassword: string | null = null
 
     if (!targetManagerId) {
       const tempPassword = generateTemporaryPassword(10)
@@ -230,13 +235,16 @@ export async function POST(request: NextRequest) {
         .select('id')
         .single()
 
-      if (insertManagerError || !insertedManager) continue
+      if (insertManagerError || !insertedManager) {
+        failedManagers.push({ email: managerEmail, error: 'Falha ao criar gestor.' })
+        continue
+      }
 
       targetManagerId = insertedManager.id
-      createdCredentials.push({ email: managerEmail, temporary_password: tempPassword })
+      newTempPassword = tempPassword
     }
 
-    await supabase
+    const { error: tenantLinkError } = await supabase
       .from('tenant_managers')
       .upsert(
         {
@@ -247,7 +255,12 @@ export async function POST(request: NextRequest) {
         { onConflict: 'tenant_id,manager_id', ignoreDuplicates: false },
       )
 
-    await supabase
+    if (tenantLinkError) {
+      failedManagers.push({ email: managerEmail, error: 'Falha ao vincular gestor ao tenant.' })
+      continue
+    }
+
+    const { error: mappingLinkError } = await supabase
       .from('mapping_managers')
       .upsert(
         {
@@ -257,11 +270,21 @@ export async function POST(request: NextRequest) {
         },
         { onConflict: 'mapping_id,manager_id', ignoreDuplicates: false },
       )
+
+    if (mappingLinkError) {
+      failedManagers.push({ email: managerEmail, error: 'Falha ao vincular gestor ao mapeamento.' })
+      continue
+    }
+
+    if (newTempPassword) {
+      createdCredentials.push({ email: managerEmail, temporary_password: newTempPassword })
+    }
   }
 
   return NextResponse.json({
     ok: true,
     mapping,
     created_manager_credentials: createdCredentials,
+    failed_managers: failedManagers,
   })
 }

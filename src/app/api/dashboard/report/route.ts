@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
-import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
+import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 
 interface CollabRow {
   id: string
@@ -42,10 +42,8 @@ function buildAdhesionTable(
 }
 
 export async function GET(request: NextRequest) {
-  const session = request.cookies.get('manager_session')?.value
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  const supabase = createServerClient()
+  const mappingScope = await requireMappingAccess(request, supabase)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
@@ -58,7 +56,6 @@ export async function GET(request: NextRequest) {
   const employmentType = request.nextUrl.searchParams.get('employment_type') ?? ''
   const hasFilters = !!(area || role || gender || raceColor || employmentType)
 
-  const supabase = createServerClient()
   let query = supabase
     .from('collaborators')
     .select('id, area, role, employment_type, gender, race_color, has_answered')

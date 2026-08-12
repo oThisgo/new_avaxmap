@@ -20,6 +20,8 @@ import {
   type ColumnProfileDraft,
   type MappingConfigDraft,
 } from '@/components/mapping/MappingConfigEditor'
+import { MANAGER_ROLE_OPTIONS, managerRoleLabel, type ManagerRole } from '@/lib/mapping/manager-roles'
+import { SOCIODEMOGRAPHIC_QUESTION_KEYS } from '@/lib/mapping/sociodemographic-questions'
 
 type MappingDetail = {
   id: string
@@ -94,6 +96,7 @@ function buildDraftFromConfig(mapping: MappingDetail): MappingConfigDraft {
     modules: asStringArray(config.modules, ['sociodemografico', 'hse', 'ietr']),
     credential_column: typeof config.credential_column === 'string' ? config.credential_column : '',
     column_profiles: profiles,
+    sociodemographic_questions: asStringArray(config.sociodemographic_questions, [...SOCIODEMOGRAPHIC_QUESTION_KEYS]),
     hse_question_order: asStringArray(config.hse_question_order, [...HSE_CODES]),
     hse_question_text_overrides: asStringRecord(config.hse_question_text_overrides),
     ietr_question_order: asStringArray(config.ietr_question_order, [...IETR_CODES]),
@@ -113,15 +116,6 @@ type ManagerRow = {
   must_change_password: boolean
 }
 
-type ManagerRole = 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
-
-const ROLE_OPTIONS: ReadonlyArray<{ value: ManagerRole; label: string }> = [
-  { value: 'superuser', label: 'Superuser (base de trabalhadores, exportações, relatórios)' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'manager', label: 'Gestor' },
-  { value: 'analyst', label: 'Analista' },
-  { value: 'viewer', label: 'Visualizador' },
-]
 
 const STATUS_LABELS: Record<MappingDetail['status'], string> = {
   draft: 'Rascunho',
@@ -148,7 +142,7 @@ export default function MappingConfigPage() {
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState<ManagerRole>('manager')
+  const [role, setRole] = useState<ManagerRole>('viewer')
   const [submitting, setSubmitting] = useState(false)
   const [temporaryPassword, setTemporaryPassword] = useState('')
 
@@ -159,6 +153,30 @@ export default function MappingConfigPage() {
   const [configBaseline, setConfigBaseline] = useState<string>('')
   const [configSaving, setConfigSaving] = useState(false)
   const [configSuccess, setConfigSuccess] = useState('')
+
+  const [openingMapping, setOpeningMapping] = useState(false)
+
+  async function handleOpenMapping(slug: string) {
+    setError('')
+    setOpeningMapping(true)
+    try {
+      const res = await fetch('/api/auth/manager/enter-mapping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapping_slug: slug }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'Não foi possível abrir o mapeamento.')
+        setOpeningMapping(false)
+        return
+      }
+      router.push(`/mapeamento/${slug}/dashboard`)
+    } catch {
+      setError('Erro de conexão ao abrir o mapeamento.')
+      setOpeningMapping(false)
+    }
+  }
 
   const configDirty = configDraft !== null && JSON.stringify(configDraft) !== configBaseline
 
@@ -238,6 +256,7 @@ export default function MappingConfigPage() {
           // canônico não é editável aqui e não pode ser perdido no PATCH.
           column_mapping: mapping.config?.column_mapping ?? {},
           csv_columns: mapping.csv_columns ?? [],
+          sociodemographic_questions: configDraft.sociodemographic_questions,
           hse_question_order: configDraft.hse_question_order,
           hse_question_text_overrides: configDraft.hse_question_text_overrides,
           ietr_question_order: configDraft.ietr_question_order,
@@ -316,7 +335,7 @@ export default function MappingConfigPage() {
       }
       setName('')
       setEmail('')
-      setRole('manager')
+      setRole('viewer')
       await loadMapping()
     } catch {
       setError('Erro de conexão ao adicionar gestor.')
@@ -391,8 +410,8 @@ export default function MappingConfigPage() {
                 <span>{mapping.module_type ?? 'Configuração customizada'}</span>
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
-                <Button onClick={() => router.push(`/mapeamento/${mapping.slug}/dashboard`)}>
-                  Abrir mapeamento
+                <Button onClick={() => handleOpenMapping(mapping.slug)} loading={openingMapping}>
+                  {openingMapping ? 'Abrindo...' : 'Abrir mapeamento'}
                 </Button>
 
                 <div className="flex items-end gap-2">
@@ -469,6 +488,7 @@ export default function MappingConfigPage() {
                       setConfigSuccess('')
                     }}
                     credentialCandidates={mapping.csv_columns ?? []}
+                    columnMapping={(mapping.config?.column_mapping as Record<string, string> | undefined) ?? {}}
                     disabled={configSaving}
                   />
                 </div>
@@ -499,7 +519,7 @@ export default function MappingConfigPage() {
                       <tr key={m.id} style={{ borderTop: `1px solid ${T.border}` }}>
                         <td className="px-3 py-2">{m.name}</td>
                         <td className="px-3 py-2" style={{ color: T.textMuted }}>{m.email}</td>
-                        <td className="px-3 py-2">{m.mapping_role}</td>
+                        <td className="px-3 py-2">{managerRoleLabel(m.mapping_role)}</td>
                         <td className="px-3 py-2">
                           {m.temp_password_plain ? (
                             <span className="font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: `${BRAND_COLORS.primary}15`, color: BRAND_COLORS.primary, border: `1px solid ${BRAND_COLORS.primary}40` }}>
@@ -545,7 +565,7 @@ export default function MappingConfigPage() {
                         {m.must_change_password ? 'Pendente' : 'Concluído'}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-xs" style={{ color: T.textFaint }}>Perfil: <span style={{ color: T.text }}>{m.mapping_role}</span></p>
+                    <p className="mt-2 text-xs" style={{ color: T.textFaint }}>Perfil: <span style={{ color: T.text }}>{managerRoleLabel(m.mapping_role)}</span></p>
                     {m.temp_password_plain && (
                       <span className="mt-2 inline-block font-mono text-xs px-2 py-1 rounded-md" style={{ backgroundColor: `${BRAND_COLORS.primary}15`, color: BRAND_COLORS.primary, border: `1px solid ${BRAND_COLORS.primary}40` }}>
                         {m.temp_password_plain}
@@ -585,11 +605,18 @@ export default function MappingConfigPage() {
                   placeholder="email@empresa.com"
                   required
                 />
-                <Select value={role} onChange={(v) => setRole(v as ManagerRole)} options={ROLE_OPTIONS} />
+                <Select
+                  value={role}
+                  onChange={(v) => setRole(v as ManagerRole)}
+                  options={MANAGER_ROLE_OPTIONS.map(({ value, label }) => ({ value, label }))}
+                />
                 <Button type="submit" loading={submitting}>
                   {submitting ? 'Adicionando...' : 'Adicionar gestor'}
                 </Button>
               </form>
+              <p className="mt-3 text-xs" style={{ color: T.textFaint }}>
+                {MANAGER_ROLE_OPTIONS.find((opt) => opt.value === role)?.description}
+              </p>
             </Card>
           </>
         )}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
 import { useThemeTokens, type ThemeTokens } from '@/lib/theme'
@@ -30,11 +30,11 @@ import {
 } from '@/components/forms/MentalHealthModule'
 import type { MappingModuleKey } from '@/lib/mapping/config'
 import { applyQuestionOverrides } from '@/lib/mapping/question-overrides'
+import { SOCIODEMOGRAPHIC_QUESTION_KEYS, getEffectiveSociodemographicQuestions } from '@/lib/mapping/sociodemographic-questions'
 
 type AnswerMap = Record<string, string>
 
 type ModuleId = 'socio' | 'hse' | 'ietr' | 'saude_mental'
-type MobileModule = 'hse' | 'ietr'
 
 interface SocioData {
   birth_date: string
@@ -119,7 +119,14 @@ const REMOTE_OPTIONS: readonly DropdownOption[] = [
   { value: 'Não', label: 'Não' },
 ]
 
-const MOBILE_QUESTIONS_PER_PAGE = 4
+/**
+ * Marcador de campo/questão obrigatória. Mesmo padrão visual do módulo Saúde
+ * Mental (ver renderQuestion em src/components/forms/MentalHealthModule.tsx),
+ * para que a obrigatoriedade seja sinalizada igual em todos os módulos.
+ */
+function RequiredMark() {
+  return <span style={{ color: BRAND_COLORS.primary }}> *</span>
+}
 
 function ScaleOptionsGrid({
   options,
@@ -183,11 +190,31 @@ function CollapsibleModule({
   theme,
   children,
 }: Readonly<CollapsibleModuleProps>) {
+  // O `overflow: hidden` é obrigatório enquanto a altura anima, senão o conteúdo
+  // vaza durante o colapso. Depois que o bloco termina de abrir ele volta a
+  // `visible`, senão os dropdowns (Select) do módulo sociodemográfico ficam
+  // cortados na borda inferior da seção em vez de flutuarem sobre ela.
+  const [openAnimationDone, setOpenAnimationDone] = useState(isOpen)
+  const [lastIsOpen, setLastIsOpen] = useState(isOpen)
+
+  // Ajuste de estado durante o render (em vez de um efeito): assim que `isOpen`
+  // muda, o conteúdo volta a ficar recortado enquanto a nova animação roda.
+  if (lastIsOpen !== isOpen) {
+    setLastIsOpen(isOpen)
+    setOpenAnimationDone(false)
+  }
+
+  const contentOverflow = isOpen && openAnimationDone ? 'visible' : 'hidden'
+
   return (
-    <section className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${theme.border}`, backgroundColor: theme.surface }}>
+    <section className="rounded-2xl" style={{ border: `1px solid ${theme.border}`, backgroundColor: theme.surface }}>
       <button
         type="button"
-        className="w-full px-4 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 text-left transition-all"
+        // Arredonda os 4 cantos quando fechado (o botão é o bloco inteiro) e só os
+        // de cima quando aberto (o conteúdo continua abaixo) — como a section não
+        // tem mais overflow-hidden (ver comentário acima), é o próprio border-radius
+        // do botão que define o formato do hover, não o corte da section.
+        className={`w-full ${isOpen ? 'rounded-t-2xl' : 'rounded-2xl'} px-4 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 text-left transition-all`}
         onClick={() => onToggle(id)}
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = theme.surface2 }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
@@ -215,10 +242,13 @@ function CollapsibleModule({
 
       <div
         id={`module-content-${id}`}
+        onTransitionEnd={(e) => {
+          if (e.propertyName === 'max-height' && isOpen) setOpenAnimationDone(true)
+        }}
         style={{
           maxHeight: isOpen ? '10000px' : '0px',
           opacity: isOpen ? 1 : 0,
-          overflow: 'hidden',
+          overflow: contentOverflow,
           transition: 'max-height 0.55s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.4s ease-out',
         }}
       >
@@ -228,12 +258,26 @@ function CollapsibleModule({
   )
 }
 
-function chunkBy<T>(items: readonly T[], chunkSize: number): T[][] {
-  const chunks: T[][] = []
-  for (let i = 0; i < items.length; i += chunkSize) {
-    chunks.push(items.slice(i, i + chunkSize))
-  }
-  return chunks
+/**
+ * Módulo sem recolhimento, usado no mobile: todas as questões numa seção
+ * corrida. Antes só o Saúde Mental era assim — HSE e IETR ficavam atrás de
+ * abas e paginação de 4 questões, o que quebrava a leitura em telas pequenas.
+ */
+function PlainModule({
+  title,
+  subtitle,
+  theme,
+  children,
+}: Readonly<{ title: string; subtitle: string; theme: FormThemeTokens; children: React.ReactNode }>) {
+  return (
+    <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${theme.border}`, backgroundColor: theme.surface }}>
+      <div className="mb-5 space-y-1">
+        <h2 className="text-xl font-semibold" style={{ color: theme.text }}>{title}</h2>
+        <p className="text-sm" style={{ color: theme.textFaint }}>{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  )
 }
 
 interface IetrFormProps {
@@ -243,8 +287,8 @@ interface IetrFormProps {
 
 type MappingRuntimeConfig = {
   modules: MappingModuleKey[]
-  demographic_columns: string[]
   column_mapping: Record<string, string>
+  sociodemographic_questions: string[]
   tcle_text: string | null
   hse_question_order: string[]
   hse_question_text_overrides: Record<string, string>
@@ -267,9 +311,6 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     saude_mental: false,
   })
 
-  const [mobileModule, setMobileModule] = useState<MobileModule>('hse')
-  const [mobilePage, setMobilePage] = useState(0)
-
   const [socio, setSocio] = useState<SocioData>({
     birth_date: '',
     gender: '',
@@ -291,8 +332,8 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   const [configLoading, setConfigLoading] = useState(false)
   const [mappingConfig, setMappingConfig] = useState<MappingRuntimeConfig>({
     modules: ['sociodemografico', 'hse', 'ietr'],
-    demographic_columns: ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
     column_mapping: {},
+    sociodemographic_questions: [...SOCIODEMOGRAPHIC_QUESTION_KEYS],
     tcle_text: null,
     hse_question_order: HSE_CODES,
     hse_question_text_overrides: {},
@@ -337,6 +378,26 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     ? countMentalHealthRequired(mentalHealthQuestions, mentalHealth)
     : 0
 
+  // Campos do módulo sociodemográfico realmente exibidos: os que o gestor
+  // escolheu na configuração do mapeamento (sociodemographic_questions) e que
+  // ainda não vêm prontos da base importada (ver
+  // src/lib/mapping/sociodemographic-questions.ts — a mesma regra vale para o
+  // editor de configuração, para as duas pontas nunca divergirem).
+  const effectiveSocioQuestions = useMemo(
+    () => new Set(getEffectiveSociodemographicQuestions(mappingConfig.sociodemographic_questions, mappingConfig.column_mapping)),
+    [mappingConfig.sociodemographic_questions, mappingConfig.column_mapping],
+  )
+  const socioFieldVisibility = {
+    birth_date: hasSocioModule && effectiveSocioQuestions.has('age_range'),
+    gender: hasSocioModule && effectiveSocioQuestions.has('gender'),
+    race_color: hasSocioModule && effectiveSocioQuestions.has('race_color'),
+    marital_status: hasSocioModule && effectiveSocioQuestions.has('marital_status'),
+    education_level: hasSocioModule && effectiveSocioQuestions.has('education_level'),
+    disability: hasSocioModule && effectiveSocioQuestions.has('disability'),
+    remote_status: hasSocioModule && hasIetrModule,
+  }
+  const showSocioModule = Object.values(socioFieldVisibility).some(Boolean)
+
   const requiresIetr = hasIetrModule && (!hasSocioModule || !/^n[aã]o/i.test(socio.remote_status.trim()))
   const effectiveIetrQuestions = useMemo(
     () => (requiresIetr ? ietrQuestions : []),
@@ -353,37 +414,15 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   const unansweredHse = hasHseModule ? hseQuestions.filter((q) => !hseAnswers[q.code]) : []
   const unansweredIetr = effectiveIetrQuestions.filter((q) => !answers[q.code])
 
-  const hsePages = useMemo(() => chunkBy(hseQuestions, MOBILE_QUESTIONS_PER_PAGE), [hseQuestions])
-  const ietrPages = useMemo(() => chunkBy(effectiveIetrQuestions, MOBILE_QUESTIONS_PER_PAGE), [effectiveIetrQuestions])
-
-  const activeMobilePages = mobileModule === 'hse' ? hsePages : ietrPages
-  const activeMobilePage = activeMobilePages[mobilePage] ?? []
-
   useEffect(() => {
     function updateMode() {
-      const mobile = window.innerWidth < 768
-      setIsMobile(mobile)
-      if (!mobile) {
-        setMobileModule('hse')
-        setMobilePage(0)
-      }
+      setIsMobile(window.innerWidth < 768)
     }
 
     updateMode()
     window.addEventListener('resize', updateMode)
     return () => window.removeEventListener('resize', updateMode)
   }, [])
-
-  useEffect(() => {
-    if (mobileModule === 'ietr' && ietrPages.length === 0) {
-      setMobileModule('hse')
-      setMobilePage(0)
-      return
-    }
-
-    const maxPage = Math.max(activeMobilePages.length - 1, 0)
-    if (mobilePage > maxPage) setMobilePage(maxPage)
-  }, [mobileModule, ietrPages.length, activeMobilePages.length, mobilePage])
 
   useEffect(() => {
     if (!mappingSlug) return
@@ -400,12 +439,12 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
           modules: Array.isArray(json.config.modules) && json.config.modules.length > 0
             ? json.config.modules
             : ['sociodemografico', 'hse', 'ietr'],
-          demographic_columns: Array.isArray(json.config.demographic_columns)
-            ? json.config.demographic_columns
-            : ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
           column_mapping: json.config.column_mapping && typeof json.config.column_mapping === 'object'
             ? json.config.column_mapping
             : {},
+          sociodemographic_questions: Array.isArray(json.config.sociodemographic_questions) && json.config.sociodemographic_questions.length > 0
+            ? json.config.sociodemographic_questions
+            : [...SOCIODEMOGRAPHIC_QUESTION_KEYS],
           tcle_text: typeof json.mapping?.tcle_text === 'string' && json.mapping.tcle_text.trim().length > 0
             ? json.mapping.tcle_text
             : null,
@@ -435,17 +474,6 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
   function toggleModule(moduleId: ModuleId) {
     setOpenModules((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }))
-  }
-
-  function isFieldPrefilledByCsv(field: string): boolean {
-    if (field === 'birth_date') {
-      return !!mappingConfig.column_mapping.birth_date || !!mappingConfig.column_mapping.age_range
-    }
-    return !!mappingConfig.column_mapping[field]
-  }
-
-  function shouldShowDemographicField(field: string): boolean {
-    return mappingConfig.demographic_columns.includes(field) && !isFieldPrefilledByCsv(field)
   }
 
   function setSocioField(field: keyof SocioData, value: string) {
@@ -488,13 +516,13 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
     if (hasSocioModule) {
       const requiredMissing = [
-        shouldShowDemographicField('age_range') && !socio.birth_date,
-        shouldShowDemographicField('gender') && !socio.gender,
-        shouldShowDemographicField('race_color') && !socio.race_color,
-        shouldShowDemographicField('marital_status') && !socio.marital_status,
-        shouldShowDemographicField('education_level') && !socio.education_level,
-        shouldShowDemographicField('disability') && !socio.disability,
-        hasIetrModule && !socio.remote_status,
+        socioFieldVisibility.birth_date && !socio.birth_date,
+        socioFieldVisibility.gender && !socio.gender,
+        socioFieldVisibility.race_color && !socio.race_color,
+        socioFieldVisibility.marital_status && !socio.marital_status,
+        socioFieldVisibility.education_level && !socio.education_level,
+        socioFieldVisibility.disability && !socio.disability,
+        socioFieldVisibility.remote_status && !socio.remote_status,
       ].some(Boolean)
 
       if (requiredMissing) {
@@ -569,23 +597,17 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     requestAnimationFrame(() => formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  /**
+   * Abre o módulo que tem a primeira pendência. No mobile os módulos já ficam
+   * todos expandidos, então basta o scroll até o topo que reportError faz.
+   */
   function goToFirstUnanswered() {
     if (unansweredHse.length > 0) {
       setOpenModules((prev) => ({ ...prev, hse: true }))
-      if (isMobile) {
-        const idx = hseQuestions.findIndex((q) => q.code === unansweredHse[0].code)
-        setMobileModule('hse')
-        setMobilePage(Math.max(0, Math.floor(idx / MOBILE_QUESTIONS_PER_PAGE)))
-      }
       return
     }
     if (unansweredIetr.length > 0) {
       setOpenModules((prev) => ({ ...prev, ietr: true }))
-      if (isMobile) {
-        const idx = effectiveIetrQuestions.findIndex((q) => q.code === unansweredIetr[0].code)
-        setMobileModule('ietr')
-        setMobilePage(Math.max(0, Math.floor(idx / MOBILE_QUESTIONS_PER_PAGE)))
-      }
       return
     }
     if (mentalHealthPending.length > 0) {
@@ -604,111 +626,130 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     backgroundColor: T.inputBg,
   }
 
-  const maxMobilePage = Math.max(activeMobilePages.length - 1, 0)
-
   function renderSocioFields() {
+    const disabilityAnsweredYes = /^sim/i.test(socio.disability.trim())
+
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label className="text-sm">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Data de nascimento *</span>
-          <input
-            type="date"
-            value={socio.birth_date}
-            onChange={(e) => setSocioField('birth_date', e.target.value)}
-            className="w-full rounded-lg px-3 py-2 outline-none transition-all"
-            style={fieldStyle}
-            disabled={isSubmitting}
-            onMouseEnter={handleFieldMouseEnter}
-            onMouseLeave={handleFieldMouseLeave}
-            onFocus={handleFieldFocus}
-            onBlur={handleFieldBlur}
-          />
-        </label>
+        {socioFieldVisibility.birth_date && (
+          <label className="text-sm">
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Data de nascimento<RequiredMark /></span>
+            <input
+              type="date"
+              value={socio.birth_date}
+              onChange={(e) => setSocioField('birth_date', e.target.value)}
+              className="w-full rounded-lg px-3 py-2 outline-none transition-all"
+              style={fieldStyle}
+              disabled={isSubmitting}
+              onMouseEnter={handleFieldMouseEnter}
+              onMouseLeave={handleFieldMouseLeave}
+              onFocus={handleFieldFocus}
+              onBlur={handleFieldBlur}
+            />
+          </label>
+        )}
 
-        <label className="text-sm">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Gênero *</span>
-          <Select
-            value={socio.gender}
-            options={GENDER_OPTIONS}
-            placeholder="Selecione"
-            disabled={isSubmitting}
-            onChange={(value) => setSocioField('gender', value)}
-          />
-        </label>
+        {socioFieldVisibility.gender && (
+          <label className="text-sm">
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Gênero<RequiredMark /></span>
+            <Select
+              value={socio.gender}
+              options={GENDER_OPTIONS}
+              placeholder="Selecione"
+              disabled={isSubmitting}
+              onChange={(value) => setSocioField('gender', value)}
+            />
+          </label>
+        )}
 
-        <label className="text-sm">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Raça/Cor *</span>
-          <Select
-            value={socio.race_color}
-            options={RACE_OPTIONS}
-            placeholder="Selecione"
-            disabled={isSubmitting}
-            onChange={(value) => setSocioField('race_color', value)}
-          />
-        </label>
+        {socioFieldVisibility.race_color && (
+          <label className="text-sm">
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Raça/Cor<RequiredMark /></span>
+            <Select
+              value={socio.race_color}
+              options={RACE_OPTIONS}
+              placeholder="Selecione"
+              disabled={isSubmitting}
+              onChange={(value) => setSocioField('race_color', value)}
+            />
+          </label>
+        )}
 
-        <label className="text-sm">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Estado civil *</span>
-          <Select
-            value={socio.marital_status}
-            options={MARITAL_OPTIONS}
-            placeholder="Selecione"
-            disabled={isSubmitting}
-            onChange={(value) => setSocioField('marital_status', value)}
-          />
-        </label>
+        {socioFieldVisibility.marital_status && (
+          <label className="text-sm">
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Estado civil<RequiredMark /></span>
+            <Select
+              value={socio.marital_status}
+              options={MARITAL_OPTIONS}
+              placeholder="Selecione"
+              disabled={isSubmitting}
+              onChange={(value) => setSocioField('marital_status', value)}
+            />
+          </label>
+        )}
 
-        <label className="text-sm">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Escolaridade *</span>
-          <Select
-            value={socio.education_level}
-            options={EDUCATION_OPTIONS}
-            placeholder="Selecione"
-            disabled={isSubmitting}
-            onChange={(value) => setSocioField('education_level', value)}
-          />
-        </label>
+        {socioFieldVisibility.education_level && (
+          <label className="text-sm">
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Escolaridade<RequiredMark /></span>
+            <Select
+              value={socio.education_level}
+              options={EDUCATION_OPTIONS}
+              placeholder="Selecione"
+              disabled={isSubmitting}
+              onChange={(value) => setSocioField('education_level', value)}
+            />
+          </label>
+        )}
 
-        <label className="text-sm">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Possui deficiência? *</span>
-          <Select
-            value={socio.disability}
-            options={DISABILITY_OPTIONS}
-            placeholder="Selecione"
-            disabled={isSubmitting}
-            onChange={(value) => setSocioField('disability', value)}
-          />
-        </label>
+        {socioFieldVisibility.disability && (
+          <>
+            <label className="text-sm">
+              <span className="mb-1.5 block" style={{ color: T.textMuted }}>Possui deficiência?<RequiredMark /></span>
+              <Select
+                value={socio.disability}
+                options={DISABILITY_OPTIONS}
+                placeholder="Selecione"
+                disabled={isSubmitting}
+                onChange={(value) => setSocioField('disability', value)}
+              />
+            </label>
 
-        <label className="text-sm sm:col-span-2">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>
-            Qual deficiência? {/^sim/i.test(socio.disability.trim()) ? '*' : '(opcional)'}
-          </span>
-          <input
-            type="text"
-            value={socio.which_disability}
-            onChange={(e) => setSocioField('which_disability', e.target.value)}
-            disabled={isSubmitting || /^n[aã]o/i.test(socio.disability.trim())}
-            placeholder="Ex.: visual, auditiva, física, intelectual"
-            className="w-full rounded-lg px-3 py-2 outline-none disabled:opacity-60 transition-all"
-            style={fieldStyle}
-            onMouseEnter={handleFieldMouseEnter}
-            onMouseLeave={handleFieldMouseLeave}
-            onFocus={handleFieldFocus}
-            onBlur={handleFieldBlur}
-          />
-        </label>
+            <label className="text-sm sm:col-span-2">
+              <span className="mb-1.5 block" style={{ color: T.textMuted }}>
+                Qual deficiência?
+                {disabilityAnsweredYes
+                  ? <RequiredMark />
+                  : <span style={{ color: T.textFaint }}> (opcional)</span>}
+              </span>
+              <input
+                type="text"
+                value={socio.which_disability}
+                onChange={(e) => setSocioField('which_disability', e.target.value)}
+                disabled={isSubmitting || /^n[aã]o/i.test(socio.disability.trim())}
+                placeholder="Ex.: visual, auditiva, física, intelectual"
+                className="w-full rounded-lg px-3 py-2 outline-none disabled:opacity-60 transition-all"
+                style={fieldStyle}
+                onMouseEnter={handleFieldMouseEnter}
+                onMouseLeave={handleFieldMouseLeave}
+                onFocus={handleFieldFocus}
+                onBlur={handleFieldBlur}
+              />
+            </label>
+          </>
+        )}
 
-        <label className="text-sm sm:col-span-2">
-          <span className="mb-1.5 block" style={{ color: T.textMuted }}>Você trabalha remotamente? *</span>
-          <Select
-            value={socio.remote_status}
-            options={REMOTE_OPTIONS}
-            placeholder="Selecione"
-            disabled={isSubmitting}
-            onChange={(value) => setSocioField('remote_status', value)}
-          />
-        </label>
+        {socioFieldVisibility.remote_status && (
+          <label className="text-sm sm:col-span-2">
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Você trabalha remotamente?<RequiredMark /></span>
+            <Select
+              value={socio.remote_status}
+              options={REMOTE_OPTIONS}
+              placeholder="Selecione"
+              disabled={isSubmitting}
+              onChange={(value) => setSocioField('remote_status', value)}
+            />
+          </label>
+        )}
       </div>
     )
   }
@@ -719,6 +760,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       <div key={questionCode} className="rounded-xl p-4 sm:p-5" style={questionCardStyle}>
         <p className="mb-4 text-base font-medium leading-relaxed sm:text-lg" style={{ color: T.text }}>
           {displayNum}. {questionText}
+          <RequiredMark />
         </p>
         <ScaleOptionsGrid options={scaleOptions} questionCode={questionCode} selected={selected} disabled={isSubmitting} theme={T} onSelect={onSelect} />
       </div>
@@ -739,99 +781,97 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     )
   }
 
-  function renderDesktopModules() {
+  function renderHseQuestions() {
+    return (
+      <div className="space-y-6">
+        {hseQuestions.map((question) =>
+          renderQuestionCard(question.code, question.text, HSE_SCALE_OPTIONS, hseAnswers[question.code], setHseAnswer),
+        )}
+      </div>
+    )
+  }
+
+  /**
+   * Conteúdo do módulo IETR, incluindo o campo de observações — ele é sobre
+   * trabalho remoto, então pertence a este módulo e some junto quando o IETR
+   * não faz parte do mapeamento.
+   */
+  function renderIetrContent() {
+    if (!requiresIetr) {
+      return (
+        <p className="rounded-lg px-4 py-3 text-sm" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.textMuted }}>
+          Você informou que não trabalha remotamente. O módulo IETR será considerado opcional nesta submissão.
+        </p>
+      )
+    }
+
     return (
       <>
-        <CollapsibleModule
-          id="socio"
-          title="Dados sociodemográficos"
-          subtitle="Dados para análises agregadas por perfil"
-          isOpen={openModules.socio}
-          onToggle={toggleModule}
-          theme={T}
-        >
-          {renderSocioFields()}
-        </CollapsibleModule>
+        <div className="space-y-6">
+          {ietrQuestions.map((question, index) =>
+            renderQuestionCard(
+              String(index + 1).padStart(2, '0'),
+              question.text,
+              IETR_SCALE_OPTIONS,
+              answers[question.code],
+              (_, value) => setAnswer(question.code, value),
+            ),
+          )}
+        </div>
 
-        <CollapsibleModule
-          id="hse"
-          title="Módulo HSE"
-          subtitle="Questões sobre o ambiente de trabalho em geral"
-          isOpen={openModules.hse}
-          onToggle={toggleModule}
-          theme={T}
-        >
-          <div className="space-y-6">
-            {hseQuestions.map((question) => renderQuestionCard(question.code, question.text, HSE_SCALE_OPTIONS, hseAnswers[question.code], setHseAnswer))}
+        <div className="mt-6">
+          <div className="mb-2 flex items-center justify-between">
+            <label htmlFor="job_observations" className="block text-sm font-medium" style={{ color: T.text }}>
+              Observações sobre o trabalho remoto <span style={{ color: T.textFaint }}>(opcional)</span>
+            </label>
+            <span className="text-xs" style={{ color: T.textFaint }}>{jobObservations.length}/1500</span>
           </div>
-        </CollapsibleModule>
-
-        <CollapsibleModule
-          id="ietr"
-          title="Módulo IETR"
-          subtitle="Questões sobre experiência de trabalho remoto"
-          isOpen={openModules.ietr}
-          onToggle={toggleModule}
-          theme={T}
-        >
-          {!requiresIetr && (
-            <p className="rounded-lg px-4 py-3 text-sm mb-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.textMuted }}>
-              Você informou que não trabalha remotamente. O módulo IETR será considerado opcional nesta submissão.
-            </p>
-          )}
-
-          {requiresIetr && (
-            <div className="space-y-6">
-              {ietrQuestions.map((question, index) =>
-                renderQuestionCard(String(index + 1).padStart(2, '0'), question.text, IETR_SCALE_OPTIONS, answers[question.code], (_, value) => setAnswer(question.code, value))
-              )}
-            </div>
-          )}
-        </CollapsibleModule>
-
-        {hasMentalHealthModule && (
-          <CollapsibleModule
-            id="saude_mental"
-            title="Módulo Saúde Mental"
-            subtitle="Comportamento e emoção, fatores ambientais e percepção sobre saúde e qualidade de vida"
-            isOpen={openModules.saude_mental}
-            onToggle={toggleModule}
-            theme={T}
-          >
-            {renderMentalHealthFields()}
-          </CollapsibleModule>
-        )}
+          <Textarea
+            id="job_observations"
+            value={jobObservations}
+            onChange={(e) => setJobObservations(e.target.value)}
+            rows={4}
+            maxLength={1500}
+            disabled={isSubmitting}
+            placeholder="Se quiser, descreva pontos que não apareceram nas questões acima."
+          />
+        </div>
       </>
     )
   }
 
-  function renderMobileQuestionCard() {
-    if (activeMobilePage.length === 0) {
-      if (mobileModule === 'ietr') {
-        return (
-          <p className="rounded-lg px-4 py-3 text-sm" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.textMuted }}>
-            Você informou que não trabalha remotamente. O módulo IETR é opcional nesta submissão.
-          </p>
-        )
-      }
-      return null
-    }
-
-    return (
-      <div className="space-y-4">
-        {mobileModule === 'hse'
-          ? activeMobilePage.map((question) => {
-              const h = question as HseQuestionDefinition
-              return renderQuestionCard(h.code, h.text, HSE_SCALE_OPTIONS, hseAnswers[h.code], setHseAnswer)
-            })
-          : activeMobilePage.map((question) => {
-              const q = question as IetrQuestionDefinition
-              const idx = ietrQuestions.findIndex((x) => x.code === q.code)
-              const num = String(idx + 1).padStart(2, '0')
-              return renderQuestionCard(num, q.text, IETR_SCALE_OPTIONS, answers[q.code], (_, value) => setAnswer(q.code, value))
-            })}
-      </div>
-    )
+  const moduleSections: Array<{ id: ModuleId; title: string; subtitle: string; content: React.ReactNode }> = []
+  if (showSocioModule) {
+    moduleSections.push({
+      id: 'socio',
+      title: 'Dados sociodemográficos',
+      subtitle: 'Dados para análises agregadas por perfil',
+      content: renderSocioFields(),
+    })
+  }
+  if (hasHseModule) {
+    moduleSections.push({
+      id: 'hse',
+      title: 'Módulo HSE',
+      subtitle: 'Questões sobre o ambiente de trabalho em geral',
+      content: renderHseQuestions(),
+    })
+  }
+  if (hasIetrModule) {
+    moduleSections.push({
+      id: 'ietr',
+      title: 'Módulo IETR',
+      subtitle: 'Questões sobre experiência de trabalho remoto',
+      content: renderIetrContent(),
+    })
+  }
+  if (hasMentalHealthModule) {
+    moduleSections.push({
+      id: 'saude_mental',
+      title: 'Módulo Saúde Mental',
+      subtitle: 'Comportamento e emoção, fatores ambientais e percepção sobre saúde e qualidade de vida',
+      content: renderMentalHealthFields(),
+    })
   }
 
   const hseShare = totalQuestions > 0 ? (hseQuestions.length / totalQuestions) * 100 : 0
@@ -886,125 +926,28 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
         </header>
 
         <form id="ietr-form" onSubmit={handleSubmit} className="space-y-6">
-          {isMobile ? (
-            <>
-              {hasSocioModule && (
-                <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
-                <div className="mb-5 space-y-1">
-                  <h2 className="text-xl font-semibold" style={{ color: T.text }}>Dados sociodemográficos</h2>
-                  <p className="text-sm" style={{ color: T.textFaint }}>Esses dados serão usados para análises agregadas por perfil.</p>
-                </div>
-                {renderSocioFields()}
-                </section>
-              )}
-
-              {(hasHseModule || hasIetrModule) && (
-                <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
-                <div className="mb-4 flex items-center gap-2">
-                  {hasHseModule && (
-                    <button
-                    type="button"
-                    onClick={() => { setMobileModule('hse'); setMobilePage(0) }}
-                    className="rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
-                    style={{
-                      border: `1px solid ${mobileModule === 'hse' ? BRAND_COLORS.primary : T.border}`,
-                      backgroundColor: mobileModule === 'hse' ? `${BRAND_COLORS.primary}22` : T.surface,
-                      color: mobileModule === 'hse' ? BRAND_COLORS.primary : T.textMuted,
-                    }}
-                  >
-                    HSE
-                  </button>
-                  )}
-                  {hasIetrModule && (
-                  <button
-                    type="button"
-                    onClick={() => { setMobileModule('ietr'); setMobilePage(0) }}
-                    className="rounded-lg px-3 py-1.5 text-sm font-medium transition-all"
-                    style={{
-                      border: `1px solid ${mobileModule === 'ietr' ? BRAND_COLORS.primary : T.border}`,
-                      backgroundColor: mobileModule === 'ietr' ? `${BRAND_COLORS.primary}22` : T.surface,
-                      color: mobileModule === 'ietr' ? BRAND_COLORS.primary : T.textMuted,
-                      opacity: requiresIetr ? 1 : 0.7,
-                    }}
-                  >
-                    IETR
-                  </button>
-                  )}
-                </div>
-
-                <div className="mb-4 flex items-center justify-between text-sm" style={{ color: T.textMuted }}>
-                  <span>{mobileModule === 'hse' ? 'Módulo HSE' : 'Módulo IETR'}</span>
-                  <span>Página {activeMobilePages.length === 0 ? 1 : mobilePage + 1} de {Math.max(activeMobilePages.length, 1)}</span>
-                </div>
-
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={`${mobileModule}-${mobilePage}`}
-                    initial={{ opacity: 0, x: 16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -16 }}
-                    transition={{ duration: 0.2, ease: 'easeOut' }}
-                  >
-                    {renderMobileQuestionCard()}
-                  </motion.div>
-                </AnimatePresence>
-
-                <div className="mt-5 flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    disabled={mobilePage === 0}
-                    onClick={() => setMobilePage((p) => Math.max(0, p - 1))}
-                    className="rounded-lg px-4 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ border: `1px solid ${T.border}`, color: T.textMuted, backgroundColor: T.surface }}
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    disabled={mobilePage >= maxMobilePage}
-                    onClick={() => setMobilePage((p) => Math.min(maxMobilePage, p + 1))}
-                    className="rounded-lg px-4 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ border: `1px solid ${T.border}`, color: T.textMuted, backgroundColor: T.surface }}
-                  >
-                    Próxima
-                  </button>
-                </div>
-                </section>
-              )}
-
-              {hasMentalHealthModule && (
-                <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
-                  <div className="mb-5 space-y-1">
-                    <h2 className="text-xl font-semibold" style={{ color: T.text }}>Módulo Saúde Mental</h2>
-                    <p className="text-sm" style={{ color: T.textFaint }}>
-                      Comportamento e emoção, fatores ambientais e percepção sobre saúde e qualidade de vida.
-                    </p>
-                  </div>
-                  {renderMentalHealthFields()}
-                </section>
-              )}
-            </>
-          ) : (
-            renderDesktopModules()
+          {/* Mesmo conteúdo nos dois modos: no mobile cada módulo é uma seção
+              corrida (como o Saúde Mental sempre foi); no desktop os módulos
+              viram blocos recolhíveis. */}
+          {moduleSections.map((module) =>
+            isMobile ? (
+              <PlainModule key={module.id} title={module.title} subtitle={module.subtitle} theme={T}>
+                {module.content}
+              </PlainModule>
+            ) : (
+              <CollapsibleModule
+                key={module.id}
+                id={module.id}
+                title={module.title}
+                subtitle={module.subtitle}
+                isOpen={openModules[module.id]}
+                onToggle={toggleModule}
+                theme={T}
+              >
+                {module.content}
+              </CollapsibleModule>
+            ),
           )}
-
-          <section className="rounded-2xl p-4 sm:p-6" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
-            <div className="mb-2 flex items-center justify-between">
-              <label htmlFor="job_observations" className="block text-sm font-medium" style={{ color: T.text }}>
-                Observações sobre o trabalho remoto (opcional)
-              </label>
-              <span className="text-xs" style={{ color: T.textFaint }}>{jobObservations.length}/1500</span>
-            </div>
-            <Textarea
-              id="job_observations"
-              value={jobObservations}
-              onChange={(e) => setJobObservations(e.target.value)}
-              rows={4}
-              maxLength={1500}
-              disabled={isSubmitting}
-              placeholder="Se quiser, descreva pontos que não apareceram nas questões acima."
-            />
-          </section>
 
           <AlertPresence show={!!error}>{error}</AlertPresence>
         </form>

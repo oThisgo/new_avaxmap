@@ -15,12 +15,13 @@ import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
 import { QuestionOrderEditor } from '@/components/mapping/QuestionOrderEditor'
-import { MODULE_DEFS, QUESTION_EDITABLE_MODULES } from '@/components/mapping/MappingConfigEditor'
+import { MODULE_DEFS, QUESTION_EDITABLE_MODULES, SociodemographicQuestionsPicker } from '@/components/mapping/MappingConfigEditor'
+import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
+import { SOCIODEMOGRAPHIC_QUESTION_KEYS } from '@/lib/mapping/sociodemographic-questions'
 
 type QuestionEditableModuleKey = keyof typeof QUESTION_EDITABLE_MODULES
 
 type MappingStatus = 'draft' | 'active'
-type ManagerRole = 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
 
 type ManagerInput = {
   name: string
@@ -69,14 +70,6 @@ type ColumnProfileCard = {
 const STATUS_OPTIONS: ReadonlyArray<{ value: MappingStatus; label: string }> = [
   { value: 'draft', label: 'Rascunho' },
   { value: 'active', label: 'Ativo' },
-]
-
-const MANAGER_ROLE_OPTIONS: ReadonlyArray<{ value: ManagerRole; label: string }> = [
-  { value: 'superuser', label: 'Superuser (base de trabalhadores, exportações, relatórios)' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'manager', label: 'Gestor' },
-  { value: 'analyst', label: 'Analista' },
-  { value: 'viewer', label: 'Visualizador' },
 ]
 
 function toggleInList(list: string[], value: string): string[] {
@@ -186,6 +179,7 @@ export default function CreateMappingPage() {
   const [credentialColumn, setCredentialColumn] = useState('')
   const [columnCards, setColumnCards] = useState<ColumnProfileCard[]>([])
   const [selectedModules, setSelectedModules] = useState<string[]>(['sociodemografico', 'hse', 'ietr'])
+  const [sociodemographicQuestions, setSociodemographicQuestions] = useState<string[]>([...SOCIODEMOGRAPHIC_QUESTION_KEYS])
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
   // Ordem e enunciados por módulo com banco de perguntas — um estado só, para
   // que incluir um novo módulo editável não exija novo par de useState.
@@ -199,7 +193,7 @@ export default function CreateMappingPage() {
     ietr: {},
     saude_mental: {},
   })
-  const [managers, setManagers] = useState<ManagerInput[]>([{ name: '', email: '', role: 'manager' }])
+  const [managers, setManagers] = useState<ManagerInput[]>([{ name: '', email: '', role: 'viewer' }])
   const tcleEditorRef = useRef<HTMLDivElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
 
@@ -207,6 +201,7 @@ export default function CreateMappingPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [createdCredentials, setCreatedCredentials] = useState<CreatedCredential[]>([])
+  const [failedManagers, setFailedManagers] = useState<Array<{ email: string; error: string }>>([])
   const [tcleFormatState, setTcleFormatState] = useState<TcleFormatState>({
     bold: false,
     italic: false,
@@ -250,7 +245,7 @@ export default function CreateMappingPage() {
   }
 
   function addManagerRow() {
-    setManagers((prev) => [...prev, { name: '', email: '', role: 'manager' }])
+    setManagers((prev) => [...prev, { name: '', email: '', role: 'viewer' }])
   }
 
   function removeManagerRow(index: number) {
@@ -460,6 +455,7 @@ export default function CreateMappingPage() {
           column_profiles: columnCards,
           credential_column: credentialColumn || null,
           column_mapping: columnMapping,
+          sociodemographic_questions: sociodemographicQuestions,
           hse_question_order: questionOrders.hse,
           hse_question_text_overrides: questionTexts.hse,
           ietr_question_order: questionOrders.ietr,
@@ -476,11 +472,19 @@ export default function CreateMappingPage() {
         return
       }
 
-      setSuccess('Mapeamento criado com sucesso!')
       setCreatedCredentials(data.created_manager_credentials ?? [])
-      setTimeout(() => {
-        router.push('/dashboard/client')
-      }, 1300)
+      setFailedManagers(data.failed_managers ?? [])
+
+      if ((data.failed_managers ?? []).length > 0) {
+        // Mapeamento foi criado, mas ao menos um gestor não pôde ser vinculado — não
+        // navega automaticamente para que o aviso abaixo fique visível.
+        setSuccess('Mapeamento criado, mas houve falha ao vincular um ou mais gestores. Veja os detalhes abaixo.')
+      } else {
+        setSuccess('Mapeamento criado com sucesso!')
+        setTimeout(() => {
+          router.push('/dashboard/client')
+        }, 1300)
+      }
     } catch {
       setError('Erro de conexão ao criar mapeamento.')
     } finally {
@@ -591,6 +595,16 @@ export default function CreateMappingPage() {
                         {mod.domains.map((domain) => (
                           <Badge key={domain}>{domain}</Badge>
                         ))}
+                      </div>
+                    )}
+
+                    {mod.key === 'sociodemografico' && enabled && (
+                      <div className="mt-4">
+                        <SociodemographicQuestionsPicker
+                          selected={sociodemographicQuestions}
+                          columnMapping={columnMapping}
+                          onChange={setSociodemographicQuestions}
+                        />
                       </div>
                     )}
 
@@ -867,36 +881,41 @@ export default function CreateMappingPage() {
             </div>
             <div className="mt-3 space-y-3">
               {managers.map((m, idx) => (
-                <div key={`manager-${idx}`} className="grid grid-cols-1 gap-3 rounded-xl p-3 sm:grid-cols-4" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2 }}>
-                  <input
-                    value={m.name}
-                    onChange={(e) => updateManager(idx, { name: e.target.value })}
-                    placeholder="Nome"
-                    className="rounded-lg px-3 py-2 outline-none"
-                    style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface, color: T.text }}
-                  />
-                  <input
-                    type="email"
-                    value={m.email}
-                    onChange={(e) => updateManager(idx, { email: e.target.value })}
-                    placeholder="email@empresa.com"
-                    className="rounded-lg px-3 py-2 outline-none"
-                    style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface, color: T.text }}
-                  />
-                  <Select
-                    value={m.role}
-                    onChange={(role) => updateManager(idx, { role: role as ManagerRole })}
-                    options={MANAGER_ROLE_OPTIONS}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => removeManagerRow(idx)}
-                    disabled={managers.length === 1}
-                    style={{ color: BRAND_COLORS.danger }}
-                  >
-                    Remover
-                  </Button>
+                <div key={`manager-${idx}`} className="rounded-xl p-3" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2 }}>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                    <input
+                      value={m.name}
+                      onChange={(e) => updateManager(idx, { name: e.target.value })}
+                      placeholder="Nome"
+                      className="rounded-lg px-3 py-2 outline-none"
+                      style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface, color: T.text }}
+                    />
+                    <input
+                      type="email"
+                      value={m.email}
+                      onChange={(e) => updateManager(idx, { email: e.target.value })}
+                      placeholder="email@empresa.com"
+                      className="rounded-lg px-3 py-2 outline-none"
+                      style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface, color: T.text }}
+                    />
+                    <Select
+                      value={m.role}
+                      onChange={(role) => updateManager(idx, { role: role as ManagerRole })}
+                      options={MANAGER_ROLE_OPTIONS.map(({ value, label }) => ({ value, label }))}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => removeManagerRow(idx)}
+                      disabled={managers.length === 1}
+                      style={{ color: BRAND_COLORS.danger }}
+                    >
+                      Remover
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs" style={{ color: T.textFaint }}>
+                    {MANAGER_ROLE_OPTIONS.find((opt) => opt.value === m.role)?.description}
+                  </p>
                 </div>
               ))}
             </div>
@@ -913,6 +932,23 @@ export default function CreateMappingPage() {
                   <div key={cred.email} className="rounded-lg p-3 text-xs" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.textMuted }}>
                     <p>Email: {cred.email}</p>
                     <p>Senha temporária: {cred.temporary_password}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {failedManagers.length > 0 && (
+            <section className="rounded-2xl p-4" style={{ border: `1px solid ${BRAND_COLORS.danger}`, backgroundColor: T.surface }}>
+              <h3 className="text-sm font-semibold" style={{ color: BRAND_COLORS.danger }}>Gestores não vinculados</h3>
+              <p className="mt-1 text-xs" style={{ color: T.textMuted }}>
+                O mapeamento foi criado, mas estes gestores não puderam ser vinculados. Tente adicioná-los novamente pela tela de edição do mapeamento.
+              </p>
+              <div className="mt-2 space-y-2">
+                {failedManagers.map((fm) => (
+                  <div key={fm.email} className="rounded-lg p-3 text-xs" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.textMuted }}>
+                    <p>Email: {fm.email}</p>
+                    <p>Erro: {fm.error}</p>
                   </div>
                 ))}
               </div>

@@ -171,9 +171,11 @@ export default function ManagersAdminPage() {
         </div>
 
         <Card className="p-5">
-          <h1 className="text-xl font-semibold mb-1">Gestores cadastrados</h1>
+          <h1 className="text-xl font-semibold mb-1">Contas internas AvaxMap</h1>
           <p className="text-sm mb-4" style={{ color: T.textMuted }}>
-            Área exclusiva do superuser para criar gestores e redefinir senhas temporárias.
+            Área exclusiva da equipe AvaxMap (superuser global) para criar contas internas e redefinir senhas
+            temporárias. Não tem relação com os gestores de um mapeamento de cliente — esses são cadastrados na
+            tela de edição de cada mapeamento (Dashboard do cliente → mapeamento → Gestores).
           </p>
 
           <AlertPresence show={!!error}>{error}</AlertPresence>

@@ -11,6 +11,11 @@ import { IETR_QUESTIONS } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_EDITABLE_QUESTIONS, MENTAL_HEALTH_QUESTIONS } from '@/lib/analytics/mental-health-definition'
 import { QuestionOrderEditor, type EditableQuestion } from '@/components/mapping/QuestionOrderEditor'
 import type { MappingModuleKey } from '@/lib/mapping/config'
+import {
+  SOCIODEMOGRAPHIC_QUESTION_KEYS,
+  SOCIODEMOGRAPHIC_QUESTION_LABELS,
+  getSociodemographicPrefillColumn,
+} from '@/lib/mapping/sociodemographic-questions'
 
 export type ColumnProfileDraft = {
   source_name: string
@@ -25,6 +30,8 @@ export type MappingConfigDraft = {
   modules: string[]
   credential_column: string
   column_profiles: ColumnProfileDraft[]
+  /** Quais perguntas do módulo sociodemográfico o formulário faz — ver src/lib/mapping/sociodemographic-questions.ts. */
+  sociodemographic_questions: string[]
   hse_question_order: string[]
   hse_question_text_overrides: Record<string, string>
   ietr_question_order: string[]
@@ -78,7 +85,7 @@ export const MODULE_DEFS: readonly ModuleDef[] = [
   {
     key: 'sociodemografico',
     title: 'Sociodemográfico',
-    description: 'Perfil dos colaboradores (idade, gênero, raça/cor, escolaridade, estado civil, deficiência) para cruzamentos e filtros no dashboard. Os campos exibidos dependem das colunas marcadas como dado demográfico.',
+    description: 'Perfil dos colaboradores (idade, gênero, raça/cor, escolaridade, estado civil, deficiência) para cruzamentos e filtros no dashboard. Escolha abaixo quais perguntas fazer — as que já vêm de uma coluna da base ficam travadas automaticamente.',
   },
   {
     key: 'hse',
@@ -111,11 +118,67 @@ function toggleInList(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 }
 
+interface SociodemographicQuestionsPickerProps {
+  selected: readonly string[]
+  columnMapping: Record<string, string>
+  onChange: (next: string[]) => void
+  disabled?: boolean
+}
+
+/**
+ * Checkboxes para escolher quais perguntas do módulo sociodemográfico o
+ * formulário faz. Uma pergunta cuja resposta já vem de uma coluna da base
+ * (detectado via column_mapping, preenchido na leitura do CSV) fica travada
+ * ligada — perguntar de novo ao colaborador seria redundante — e explica de
+ * qual coluna veio o bloqueio, no mesmo padrão visual dos cards de coluna
+ * bloqueados logo abaixo, nesta mesma tela.
+ */
+export function SociodemographicQuestionsPicker({
+  selected,
+  columnMapping,
+  onChange,
+  disabled = false,
+}: Readonly<SociodemographicQuestionsPickerProps>) {
+  const T = useThemeTokens()
+
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {SOCIODEMOGRAPHIC_QUESTION_KEYS.map((key) => {
+        const prefillColumn = getSociodemographicPrefillColumn(key, columnMapping)
+        const locked = prefillColumn !== null
+        const checked = locked || selected.includes(key)
+
+        return (
+          <div
+            key={key}
+            className="rounded-lg px-3 py-2.5"
+            style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}
+          >
+            <Checkbox
+              checked={checked}
+              disabled={locked || disabled}
+              onChange={() => onChange(toggleInList([...selected], key))}
+              label={<span style={{ color: T.text }}>{SOCIODEMOGRAPHIC_QUESTION_LABELS[key]}</span>}
+            />
+            {locked && (
+              <p className="mt-1 pl-6 text-xs" style={{ color: T.textFaint }}>
+                Já vem da coluna &ldquo;{prefillColumn}&rdquo; da base — não é perguntado no formulário.
+              </p>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 interface MappingConfigEditorProps {
   draft: MappingConfigDraft
   onChange: (next: MappingConfigDraft) => void
   /** Colunas do CSV disponíveis para escolher como credencial de acesso. */
   credentialCandidates: readonly string[]
+  /** header do CSV -> campo canônico, usado para bloquear perguntas sociodemográficas já cobertas pela base. */
+  columnMapping: Record<string, string>
   disabled?: boolean
 }
 
@@ -123,6 +186,7 @@ export function MappingConfigEditor({
   draft,
   onChange,
   credentialCandidates,
+  columnMapping,
   disabled = false,
 }: Readonly<MappingConfigEditorProps>) {
   const T = useThemeTokens()
@@ -202,6 +266,17 @@ export function MappingConfigEditor({
                     {mod.domains.map((domain) => (
                       <Badge key={domain}>{domain}</Badge>
                     ))}
+                  </div>
+                )}
+
+                {mod.key === 'sociodemografico' && enabled && (
+                  <div className="mt-4">
+                    <SociodemographicQuestionsPicker
+                      selected={draft.sociodemographic_questions}
+                      columnMapping={columnMapping}
+                      onChange={(next) => patch({ sociodemographic_questions: next })}
+                      disabled={disabled}
+                    />
                   </div>
                 )}
 

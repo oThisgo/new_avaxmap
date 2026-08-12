@@ -3,6 +3,11 @@ import { normalizeQuestionOverrides } from './question-overrides'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
+import {
+  SOCIODEMOGRAPHIC_QUESTION_KEYS,
+  isSociodemographicQuestionKey,
+  getEffectiveSociodemographicQuestions,
+} from './sociodemographic-questions'
 
 export type MappingModuleKey = 'sociodemografico' | 'hse' | 'ietr' | 'saude_mental'
 
@@ -122,6 +127,15 @@ export type NormalizedMappingConfig = {
   column_profiles: Array<Record<string, unknown>>
   /** Rótulo de exibição para qualquer chave presente em dashboard_filters/demographic_columns. */
   field_labels: Record<string, string>
+  /**
+   * Preferência do gestor sobre quais perguntas do módulo sociodemográfico
+   * fazer (ver src/lib/mapping/sociodemographic-questions.ts) — SEM aplicar
+   * ainda o bloqueio por coluna já existente na base. Quem decide o que
+   * efetivamente aparece no formulário é getEffectiveSociodemographicQuestions
+   * (selected ∩ não vem do CSV), recalculado em tempo de leitura a partir
+   * deste campo + column_mapping, não persistido já filtrado.
+   */
+  sociodemographic_questions: string[]
   hse_question_order: string[]
   hse_question_text_overrides: Record<string, string>
   ietr_question_order: string[]
@@ -167,6 +181,17 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
     ? config.column_profiles.filter((row) => row && typeof row === 'object') as Array<Record<string, unknown>>
     : []
 
+  // Sem seleção salva (mapeamento antigo, anterior a este campo, ou nunca
+  // tocado pelo gestor), o padrão é perguntar tudo — igual ao comportamento
+  // implícito que já existia antes deste campo existir. O bloqueio por coluna
+  // já presente na base é aplicado depois, na leitura (ver
+  // getEffectiveSociodemographicQuestions), não aqui.
+  const rawSociodemographicQuestions = normalizeStringArray(config.sociodemographic_questions)
+    .filter(isSociodemographicQuestionKey)
+  const sociodemographicQuestions = rawSociodemographicQuestions.length > 0
+    ? unique(rawSociodemographicQuestions)
+    : [...SOCIODEMOGRAPHIC_QUESTION_KEYS]
+
   const hseOverrides = normalizeQuestionOverrides(config.hse_question_order, config.hse_question_text_overrides, HSE_CODES)
   const ietrOverrides = normalizeQuestionOverrides(config.ietr_question_order, config.ietr_question_text_overrides, IETR_CODES)
   const mentalHealthOverrides = normalizeQuestionOverrides(
@@ -183,10 +208,30 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
       .map((header) => resolveFieldKey(header, headerFieldMap, columnDisplayNames, fieldLabels)),
   )
 
-  const demographicColumns = unique(
-    normalizeStringArray(config.demographic_columns)
+  // Toda pergunta sociodemográfica efetivamente feita no formulário (ver
+  // sociodemographicQuestions acima) tem que virar gráfico na aba de dados
+  // demográficos, não só as colunas que o gestor marcou manualmente como
+  // "dado demográfico" na configuração por coluna — senão perguntas como
+  // Gênero/Raça/Escolaridade, respondidas pelo colaborador em vez de vindas
+  // do CSV, nunca aparecem no dashboard. Só vale quando o módulo sociodemográfico
+  // está ativo: desligado, nenhuma dessas respostas é coletada.
+  const effectiveModules = modules.length > 0 ? modules : DEFAULT_MODULES
+  const effectiveSociodemographicQuestions: string[] = effectiveModules.includes('sociodemografico')
+    ? getEffectiveSociodemographicQuestions(sociodemographicQuestions, columnMapping)
+    : []
+  // 'disability_types' (a resposta livre de "qual deficiência") não é uma opção
+  // do seletor — ela é coletada junto sempre que 'disability' é perguntado (ver
+  // which_disability em src/components/forms/IetrForm.tsx) — então acompanha
+  // 'disability' aqui em vez de precisar de uma entrada própria.
+  if (effectiveSociodemographicQuestions.includes('disability')) {
+    effectiveSociodemographicQuestions.push('disability_types')
+  }
+
+  const demographicColumns = unique([
+    ...normalizeStringArray(config.demographic_columns)
       .map((header) => resolveFieldKey(header, headerFieldMap, columnDisplayNames, fieldLabels)),
-  )
+    ...effectiveSociodemographicQuestions,
+  ])
 
   const stratificationColumns = unique(
     normalizeStringArray(config.stratification_columns)
@@ -203,7 +248,7 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
   }
 
   return {
-    modules: modules.length > 0 ? modules : DEFAULT_MODULES,
+    modules: effectiveModules,
     dashboard_filters: effectiveFilters,
     stratification_columns: effectiveStrata,
     demographic_columns: effectiveCharts,
@@ -212,6 +257,7 @@ export function normalizeMappingConfig(raw: unknown): NormalizedMappingConfig {
     column_display_names: columnDisplayNames,
     column_profiles: columnProfiles,
     field_labels: fieldLabels,
+    sociodemographic_questions: sociodemographicQuestions,
     hse_question_order: hseOverrides.order,
     hse_question_text_overrides: hseOverrides.text,
     ietr_question_order: ietrOverrides.order,

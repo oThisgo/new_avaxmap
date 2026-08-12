@@ -25,9 +25,11 @@ interface OverviewData {
   total_expected: number
   completion_pct: number
   responses_by_day: DayItem[]
-  by_area: DistItem[]
-  by_role: DistItem[]
-  by_employment_type: DistItem[]
+  // null = a base deste mapeamento não tem essa coluna (card nem aparece);
+  // [] = tem a coluna, mas ninguém respondeu ainda ("Sem dados").
+  by_area: DistItem[] | null
+  by_role: DistItem[] | null
+  by_employment_type: DistItem[] | null
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
@@ -155,12 +157,16 @@ export default function OverviewTab({ query }: { query: string }) {
         )}
       </div>
 
-      <h3 className="text-sm font-semibold -mb-2" style={{ color: T.textMuted }}>Adesão por Segmento</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <OrgDonut title="Respostas por Área" data={data.by_area} />
-        <OrgDonut title="Respostas por Cargo" data={data.by_role} />
-        <OrgDonut title="Respostas por Vínculo" data={data.by_employment_type} />
-      </div>
+      {(data.by_area || data.by_role || data.by_employment_type) && (
+        <>
+          <h3 className="text-sm font-semibold -mb-2" style={{ color: T.textMuted }}>Adesão por Segmento</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {data.by_area && <OrgDonut title="Respostas por Área" data={data.by_area} />}
+            {data.by_role && <OrgDonut title="Respostas por Cargo" data={data.by_role} />}
+            {data.by_employment_type && <OrgDonut title="Respostas por Vínculo" data={data.by_employment_type} />}
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -443,8 +443,7 @@ export default function DashboardShell() {
             </Button>
           )}
 
-          {canAdmin && <a href="/admin/upload" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Importar CSV</a>}
-          {managerDisplay?.role === 'superuser' && <a href="/admin/managers" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Gestores</a>}
+          {canAdmin && <a href="/admin/collaborators" className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors" style={{ backgroundColor: T.surface, border: `1px solid ${T.adminBorder}`, color: T.adminText }} onMouseEnter={(e) => { e.currentTarget.style.color = BRAND_COLORS.primary; e.currentTarget.style.borderColor = BRAND_COLORS.primary }} onMouseLeave={(e) => { e.currentTarget.style.color = T.adminText; e.currentTarget.style.borderColor = T.adminBorder }}>Colaboradores</a>}
 
           {managerDisplay && (
             <div className="relative" ref={menuRef}>
@@ -496,8 +495,7 @@ export default function DashboardShell() {
             {activeCount > 0 && <button onClick={() => { clearFilters(); setMobileMenuOpen(false) }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.clearBtnText }}>Limpar filtros ({activeCount})</button>}
             <button onClick={() => { setMobileMenuOpen(false); handleDownloadXLSX() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }}>Relatório Excel</button>
             <button onClick={() => { setMobileMenuOpen(false); handleDownloadPDF() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }}>{reportLoading ? 'Gerando PDF...' : 'Relatório PDF'}</button>
-            {canAdmin && <a href="/admin/upload" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Importar CSV</a>}
-            {managerDisplay.role === 'superuser' && <a href="/admin/managers" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Gestores</a>}
+            {canAdmin && <a href="/admin/collaborators" className="text-sm px-3 py-2.5 rounded-lg" style={{ color: T.adminText }} onClick={() => setMobileMenuOpen(false)}>Colaboradores</a>}
             <button onClick={handleGoToResetPassword} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: T.textMuted }}>Redefinir senha</button>
             <button onClick={() => { setMobileMenuOpen(false); handleLogout() }} className="w-full text-left text-sm px-3 py-2.5 rounded-lg" style={{ color: BRAND_COLORS.danger }}>Sair</button>
           </div>

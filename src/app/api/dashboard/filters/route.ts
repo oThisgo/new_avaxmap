@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
+import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
 import { getCollaboratorFieldValue, isPushableFilterKey } from '@/lib/mapping/collaborator-fields'
 
 const MIN_GROUP_SIZE = 5
 
 export async function GET(request: NextRequest) {
-  const session = request.cookies.get('manager_session')?.value
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  const supabase = createServerClient()
+  const mappingScope = await requireMappingAccess(request, supabase)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
-
-  const supabase = createServerClient()
 
   const { data: mapping } = await supabase
     .from('mappings')

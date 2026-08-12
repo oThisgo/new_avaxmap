@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMappingScopeContext } from '@/lib/auth/mapping-scope'
+import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
 import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 
 export async function GET(request: NextRequest) {
-  const session = request.cookies.get('manager_session')?.value
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
+  const supabase = createServerClient()
+  const mappingScope = await requireMappingAccess(request, supabase)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
-
-  const supabase = createServerClient()
 
   const { data: mapping } = await supabase
     .from('mappings')
@@ -58,9 +54,18 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.value - a.value)
   }
 
-  const by_area = countBy(answered.map((c) => c.area))
-  const by_role = countBy(answered.map((c) => c.role))
-  const by_employment_type = countBy(answered.map((c) => c.employment_type))
+  // area/role/employment_type só existem quando a base do cliente trouxe essa
+  // coluna (são campos puramente organizacionais — nunca vêm do questionário,
+  // ver comentário em src/types/database.ts). Sem isso, `null` em vez de `[]`
+  // distingue "esta base não tem essa coluna" (esconde o card) de "tem a
+  // coluna, mas ninguém respondeu ainda" (mostra "Sem dados").
+  const hasArea = allCollabs.some((c) => c.area)
+  const hasRole = allCollabs.some((c) => c.role)
+  const hasEmploymentType = allCollabs.some((c) => c.employment_type)
+
+  const by_area = hasArea ? countBy(answered.map((c) => c.area)) : null
+  const by_role = hasRole ? countBy(answered.map((c) => c.role)) : null
+  const by_employment_type = hasEmploymentType ? countBy(answered.map((c) => c.employment_type)) : null
 
   if (collaboratorIds.length === 0) {
     return NextResponse.json({

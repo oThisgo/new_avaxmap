@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { getManagerFromSession, type ManagerSession } from '@/lib/auth/manager'
+import { isAdmin } from '@/lib/auth/roles'
 
 export type MappingScopeContext = {
   scope: 'client' | 'mapping'
@@ -93,4 +95,58 @@ export async function getMappingManagerRole(
     .maybeSingle()
 
   return data?.role ?? null
+}
+
+export type MappingAccessContext = {
+  manager: ManagerSession
+  mappingId: string
+  mappingSlug: string
+  mappingRole: string | null
+}
+
+/**
+ * Porta de entrada única para rotas que devolvem dados de um mapeamento
+ * (colaboradores, respostas, config, filtros, relatórios...).
+ *
+ * getMappingScopeContext, sozinho, só resolve QUAL mapeamento está ativo na
+ * sessão (pelo cookie active_mapping_slug) e se ele existe/está ativo — ele NÃO
+ * verifica se o gestor logado tem qualquer vínculo com esse mapeamento. Rotas
+ * que chamavam getMappingScopeContext diretamente (sem também checar
+ * getMappingManagerRole) e só validavam a PRESENÇA do cookie manager_session
+ * (em vez de validar a sessão de fato via getManagerFromSession) permitiam que
+ * qualquer requisição — mesmo com um manager_session forjado — lesse dados de
+ * QUALQUER mapeamento ativo do sistema, bastando indicar outro slug no cookie
+ * active_mapping_slug. Esta função corrige as duas falhas de uma vez: valida a
+ * sessão de verdade e exige um vínculo real do gestor com o mapeamento
+ * (mapping_managers), com bypass apenas para admin/superuser GLOBAL (equipe
+ * AvaxMap, que já teria acesso via /admin).
+ */
+export async function requireMappingAccess(
+  request: NextRequest,
+  supabase: ReturnType<typeof createServerClient>,
+): Promise<MappingAccessContext | MappingScopeError> {
+  const sessionToken = request.cookies.get('manager_session')?.value
+  const manager = await getManagerFromSession(sessionToken)
+  if (!manager) {
+    return { error: 'Não autenticado', status: 401 }
+  }
+
+  const scope = await getMappingScopeContext(request, { requireMappingScope: true })
+  if ('error' in scope) {
+    return scope
+  }
+
+  const mappingId = scope.mappingId as string
+  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingId)
+
+  if (mappingRole === null && !isAdmin(manager.role)) {
+    return { error: 'Sem acesso a este mapeamento.', status: 403 }
+  }
+
+  return {
+    manager,
+    mappingId,
+    mappingSlug: scope.mappingSlug as string,
+    mappingRole,
+  }
 }

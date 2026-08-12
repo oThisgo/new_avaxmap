@@ -70,6 +70,21 @@ export async function POST(request: NextRequest) {
     path: '/',
   }
 
+  // Preserva o escopo de mapeamento (mapping_role/mapping_slug) já presente no
+  // cookie — sem isso, um gestor que troca a senha no primeiro acesso perdia o
+  // mapping_role assim que o cookie era reescrito aqui, e o dashboard deixava
+  // de mostrar as opções de superuser mesmo com o papel correto no banco.
+  let mappingRole: string | null = null
+  let mappingSlug: string | null = null
+  const existingDisplay = request.cookies.get('manager_display')?.value
+  if (existingDisplay) {
+    try {
+      const parsed = JSON.parse(existingDisplay) as { mapping_role?: string | null; mapping_slug?: string | null }
+      mappingRole = parsed.mapping_role ?? null
+      mappingSlug = parsed.mapping_slug ?? null
+    } catch {}
+  }
+
   const response = NextResponse.json({ ok: true })
   response.cookies.set(
     'manager_display',
@@ -77,6 +92,8 @@ export async function POST(request: NextRequest) {
       name: row.name ?? '',
       email: row.email ?? '',
       role: row.role ?? 'manager',
+      mapping_role: mappingRole,
+      mapping_slug: mappingSlug,
       must_change_password: false,
     }),
     { ...cookieOpts, httpOnly: false },

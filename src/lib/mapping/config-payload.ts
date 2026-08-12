@@ -3,6 +3,7 @@ import { MAPPING_MODULE_KEYS } from './config'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
+import { SOCIODEMOGRAPHIC_QUESTION_KEYS, isSociodemographicQuestionKey } from './sociodemographic-questions'
 
 /**
  * Payload de configuração aceito tanto na criação (POST /api/client/mappings)
@@ -28,6 +29,7 @@ export type MappingConfigPayload = {
   }>
   column_mapping?: Record<string, string>
   dashboard_filters?: string[]
+  sociodemographic_questions?: string[]
   hse_question_order?: string[]
   hse_question_text_overrides?: Record<string, string>
   ietr_question_order?: string[]
@@ -214,6 +216,16 @@ export function buildMappingConfig(
     ...displayNamesFromProfiles,
   }
 
+  // Mesma regra de fallback do normalizeMappingConfig (src/lib/mapping/config.ts):
+  // sem seleção explícita, o padrão é perguntar tudo. O bloqueio por coluna já
+  // presente na base não é resolvido aqui — fica para a leitura, via
+  // getEffectiveSociodemographicQuestions.
+  const rawSociodemographicQuestions = normalizeStringList(payload.sociodemographic_questions)
+    .filter(isSociodemographicQuestionKey)
+  const sociodemographicQuestions = rawSociodemographicQuestions.length > 0
+    ? rawSociodemographicQuestions
+    : [...SOCIODEMOGRAPHIC_QUESTION_KEYS]
+
   const hseOverrides = normalizeQuestionOverrides(
     payload.hse_question_order,
     payload.hse_question_text_overrides,
@@ -242,6 +254,7 @@ export function buildMappingConfig(
       column_profiles: columnProfiles,
       credential_column: credentialColumn || null,
       column_mapping: columnMapping,
+      sociodemographic_questions: sociodemographicQuestions,
       hse_question_order: hseOverrides.order,
       hse_question_text_overrides: hseOverrides.text,
       ietr_question_order: ietrOverrides.order,

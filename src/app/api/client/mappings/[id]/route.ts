@@ -5,6 +5,9 @@ import { getManagerFromSession } from '@/lib/auth/manager'
 import { generateTemporaryPassword, wrapTemporaryHash, TEMP_PASSWORD_PREFIX } from '@/lib/auth/password'
 import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
+import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
+
+const VALID_MANAGER_ROLES = new Set(MANAGER_ROLE_OPTIONS.map((opt) => opt.value))
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -13,7 +16,7 @@ interface RouteParams {
 type ManagerPayload = {
   name?: string
   email?: string
-  role?: 'owner' | 'superuser' | 'admin' | 'manager' | 'analyst' | 'viewer'
+  role?: ManagerRole
 }
 
 async function requireMappingOwner(
@@ -100,7 +103,7 @@ export async function GET(request: NextRequest, { params }: Readonly<RouteParams
       id: m.id,
       name: m.name,
       email: m.email,
-      mapping_role: roleByManagerId.get(m.id) ?? 'manager',
+      mapping_role: roleByManagerId.get(m.id) ?? 'viewer',
       is_active: m.is_active,
       temp_password_plain: m.temp_password_plain ?? null,
       must_change_password: (m.password_hash ?? '').startsWith(TEMP_PASSWORD_PREFIX),
@@ -135,7 +138,7 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
 
   const managerEmail = (payload.email ?? '').trim().toLowerCase()
   const managerName = (payload.name ?? '').trim()
-  const managerRole = payload.role ?? 'manager'
+  const managerRole = payload.role && VALID_MANAGER_ROLES.has(payload.role) ? payload.role : 'viewer'
 
   if (!managerEmail || !managerName) {
     return NextResponse.json({ error: 'Nome e e-mail do gestor são obrigatórios.' }, { status: 400 })
