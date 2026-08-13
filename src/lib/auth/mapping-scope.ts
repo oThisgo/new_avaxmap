@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession, type ManagerSession } from '@/lib/auth/manager'
 import { isAdmin } from '@/lib/auth/roles'
 
@@ -49,14 +49,13 @@ export async function getMappingScopeContext(
     }
   }
 
-  const supabase = createServerClient()
-  const { data: mapping, error } = await supabase
-    .from('mappings')
-    .select('id, status')
-    .eq('slug', mappingSlug)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['id', 'status'])
+    .where('slug', '=', mappingSlug)
+    .executeTakeFirst()
 
-  if (error || !mapping) {
+  if (!mapping) {
     return {
       error: 'Mapeamento ativo não encontrado.',
       status: 404,
@@ -83,16 +82,15 @@ export async function getMappingScopeContext(
  * conceder permissões restritas àquele mapeamento em vez de globalmente.
  */
 export async function getMappingManagerRole(
-  supabase: ReturnType<typeof createServerClient>,
   managerId: string,
   mappingId: string,
 ): Promise<string | null> {
-  const { data } = await supabase
-    .from('mapping_managers')
+  const data = await db
+    .selectFrom('mapping_managers')
     .select('role')
-    .eq('mapping_id', mappingId)
-    .eq('manager_id', managerId)
-    .maybeSingle()
+    .where('mapping_id', '=', mappingId)
+    .where('manager_id', '=', managerId)
+    .executeTakeFirst()
 
   return data?.role ?? null
 }
@@ -123,7 +121,6 @@ export type MappingAccessContext = {
  */
 export async function requireMappingAccess(
   request: NextRequest,
-  supabase: ReturnType<typeof createServerClient>,
 ): Promise<MappingAccessContext | MappingScopeError> {
   const sessionToken = request.cookies.get('manager_session')?.value
   const manager = await getManagerFromSession(sessionToken)
@@ -137,7 +134,7 @@ export async function requireMappingAccess(
   }
 
   const mappingId = scope.mappingId as string
-  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingId)
+  const mappingRole = await getMappingManagerRole(manager.id, mappingId)
 
   if (mappingRole === null && !isAdmin(manager.role)) {
     return { error: 'Sem acesso a este mapeamento.', status: 403 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
 import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
@@ -196,47 +196,59 @@ export async function GET(request: NextRequest) {
   const manager = await getManagerFromSession(sessionToken)
   if (!manager) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
 
-  const supabase = createServerClient()
   const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingScope.mappingId as string)
+  const mappingRole = await getMappingManagerRole(manager.id, mappingScope.mappingId as string)
   if (!isMappingSuperuser(manager.role, mappingRole)) {
     return NextResponse.json({ error: 'Apenas superuser pode exportar dados de risco.' }, { status: 403 })
   }
 
-  const { data: mapping } = await supabase
-    .from('mappings')
+  const mapping = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = normalizeMappingConfig(mapping?.config)
   const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
-  let collabQuery = supabase
-    .from('collaborators')
-    .select('id, area, role, gender, race_color, employment_type, birth_date')
-    .eq('mapping_id', mappingScope.mappingId)
+  let collabQuery = db
+    .selectFrom('collaborators')
+    .select(['id', 'area', 'role', 'gender', 'race_color', 'employment_type', 'birth_date'])
+    .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
 
-  const { data: collabs, error: collabErr } = await collabQuery
-  if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
+  let collabs
+  try {
+    collabs = await collabQuery.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
 
-  const allCollabs = (collabs ?? []) as CollabData[]
+  const allCollabs = collabs as CollabData[]
   const allIds = allCollabs.map((c) => c.id)
   const responseMap = new Map<string, ResponseData>()
 
   if (allIds.length > 0) {
-    const { data: responses, error: respErr } = await supabase
-      .from('responses')
-      .select('collaborator_id, answers, hse_domains, hse_score, hse_class, remote_domains, remote_score, remote_class, mental_health_answers, mental_health_derived, mental_health_score, mental_health_class')
-      .in('collaborator_id', allIds)
-    if (respErr) return NextResponse.json({ error: respErr.message }, { status: 500 })
+    let responses
+    try {
+      responses = await db
+        .selectFrom('responses')
+        .select([
+          'collaborator_id', 'answers', 'hse_domains', 'hse_score', 'hse_class', 'remote_domains',
+          'remote_score', 'remote_class', 'mental_health_answers', 'mental_health_derived',
+          'mental_health_score', 'mental_health_class',
+        ])
+        .where('collaborator_id', 'in', allIds)
+        .execute()
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
+    }
 
-    for (const r of responses ?? []) {
+    for (const r of responses) {
       responseMap.set(r.collaborator_id, {
         answers: (r.answers as AnswerEntry[] | null) ?? [],
         hse_domains: (r.hse_domains as DomainEntry[] | null) ?? [],

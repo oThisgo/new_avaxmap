@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
 
 interface RouteParams {
@@ -10,14 +10,13 @@ export async function GET(_: NextRequest, { params }: Readonly<RouteParams>) {
   const { slug } = await params
   const normalizedSlug = slug.trim().toLowerCase()
 
-  const supabase = createServerClient()
-  const { data: mapping, error } = await supabase
-    .from('mappings')
-    .select('id, name, slug, status, tcle_text, config')
-    .eq('slug', normalizedSlug)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['id', 'name', 'slug', 'status', 'tcle_text', 'config'])
+    .where('slug', '=', normalizedSlug)
+    .executeTakeFirst()
 
-  if (error || !mapping || mapping.status !== 'active') {
+  if (!mapping || mapping.status !== 'active') {
     return NextResponse.json({ error: 'Mapeamento não encontrado ou inativo.' }, { status: 404 })
   }
 

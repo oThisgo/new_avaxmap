@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession } from '@/lib/auth/manager'
 import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/password'
 
@@ -17,49 +17,49 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
   }
 
   const { id: mappingId, managerId } = await params
-  const supabase = createServerClient()
 
-  const { data: mapping, error: mappingError } = await supabase
-    .from('mappings')
-    .select('id, tenant_id')
-    .eq('id', mappingId)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['id', 'tenant_id'])
+    .where('id', '=', mappingId)
+    .executeTakeFirst()
 
-  if (mappingError || !mapping) {
+  if (!mapping) {
     return NextResponse.json({ error: 'Mapeamento não encontrado.' }, { status: 404 })
   }
 
-  const { data: link, error: linkError } = await supabase
-    .from('tenant_managers')
+  const link = await db
+    .selectFrom('tenant_managers')
     .select('role')
-    .eq('manager_id', manager.id)
-    .eq('tenant_id', mapping.tenant_id)
-    .single()
+    .where('manager_id', '=', manager.id)
+    .where('tenant_id', '=', mapping.tenant_id)
+    .executeTakeFirst()
 
-  if (linkError || !link || !['owner', 'admin'].includes(link.role ?? '')) {
+  if (!link || !['owner', 'admin'].includes(link.role ?? '')) {
     return NextResponse.json({ error: 'Sem permissão para redefinir código de acesso.' }, { status: 403 })
   }
 
-  const { data: targetLink, error: targetLinkError } = await supabase
-    .from('mapping_managers')
+  const targetLink = await db
+    .selectFrom('mapping_managers')
     .select('manager_id')
-    .eq('mapping_id', mappingId)
-    .eq('manager_id', managerId)
-    .single()
+    .where('mapping_id', '=', mappingId)
+    .where('manager_id', '=', managerId)
+    .executeTakeFirst()
 
-  if (targetLinkError || !targetLink) {
+  if (!targetLink) {
     return NextResponse.json({ error: 'Gestor não vinculado a este mapeamento.' }, { status: 404 })
   }
 
   const temporaryPassword = generateTemporaryPassword(10)
   const bcryptHash = await hash(temporaryPassword, 12)
 
-  const { error } = await supabase
-    .from('managers')
-    .update({ password_hash: wrapTemporaryHash(bcryptHash), temp_password_plain: temporaryPassword })
-    .eq('id', managerId)
-
-  if (error) {
+  try {
+    await db
+      .updateTable('managers')
+      .set({ password_hash: wrapTemporaryHash(bcryptHash), temp_password_plain: temporaryPassword })
+      .where('id', '=', managerId)
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Erro ao redefinir código de acesso.' }, { status: 500 })
   }
 

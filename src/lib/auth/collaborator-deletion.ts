@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { isMappingSuperuser } from '@/lib/auth/manager'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 
@@ -17,10 +17,9 @@ type DeletionGuardOk = { mappingId: string }
  */
 export async function requireCollaboratorDeletion(
   request: NextRequest,
-  supabase: ReturnType<typeof createServerClient>,
   collaboratorId: string,
 ): Promise<DeletionGuardOk | DeletionGuardError> {
-  const access = await requireMappingAccess(request, supabase)
+  const access = await requireMappingAccess(request)
   if ('error' in access) return access
 
   if (!isMappingSuperuser(access.manager.role, access.mappingRole)) {
@@ -31,14 +30,15 @@ export async function requireCollaboratorDeletion(
     return { error: 'Colaborador não informado.', status: 400 }
   }
 
-  const { data: collaborator, error } = await supabase
-    .from('collaborators')
-    .select('id')
-    .eq('id', collaboratorId)
-    .eq('mapping_id', access.mappingId)
-    .maybeSingle()
-
-  if (error) {
+  let collaborator
+  try {
+    collaborator = await db
+      .selectFrom('collaborators')
+      .select('id')
+      .where('id', '=', collaboratorId)
+      .where('mapping_id', '=', access.mappingId)
+      .executeTakeFirst()
+  } catch {
     return { error: 'Falha ao validar o colaborador.', status: 500 }
   }
 

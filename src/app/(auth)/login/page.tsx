@@ -123,7 +123,7 @@ export default function LoginPage() {
               <AlertPresence show={!!error}>{error}</AlertPresence>
 
               <Button type="submit" size="lg" loading={loading} disabled={loading || digits.length !== 11} className="mt-2 w-full">
-                {loading ? 'Verificando...' : 'Acessar pesquisa →'}
+                {loading ? 'Verificando...' : 'Continuar'}
               </Button>
             </form>
           </Card>

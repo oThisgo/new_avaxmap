@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { requireCollaboratorDeletion } from '@/lib/auth/collaborator-deletion'
 
 interface RouteParams {
@@ -18,19 +18,15 @@ interface RouteParams {
  */
 export async function DELETE(request: NextRequest, { params }: Readonly<RouteParams>) {
   const { id } = await params
-  const supabase = createServerClient()
 
-  const guard = await requireCollaboratorDeletion(request, supabase, id)
+  const guard = await requireCollaboratorDeletion(request, id)
   if ('error' in guard) {
     return NextResponse.json({ error: guard.error }, { status: guard.status })
   }
 
-  const { error: responsesError } = await supabase
-    .from('responses')
-    .delete()
-    .eq('collaborator_id', id)
-
-  if (responsesError) {
+  try {
+    await db.deleteFrom('responses').where('collaborator_id', '=', id).execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao excluir a resposta.' }, { status: 500 })
   }
 
@@ -38,13 +34,14 @@ export async function DELETE(request: NextRequest, { params }: Readonly<RoutePar
   // (gênero, raça/cor, escolaridade...) são mantidos: eles serão sobrescritos
   // na nova submissão e apagá-los aqui destruiria dado que também pode ter
   // vindo da base importada.
-  const { error: collaboratorError } = await supabase
-    .from('collaborators')
-    .update({ has_answered: false })
-    .eq('id', id)
-    .eq('mapping_id', guard.mappingId)
-
-  if (collaboratorError) {
+  try {
+    await db
+      .updateTable('collaborators')
+      .set({ has_answered: false })
+      .where('id', '=', id)
+      .where('mapping_id', '=', guard.mappingId)
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao reabrir o questionário do colaborador.' }, { status: 500 })
   }
 

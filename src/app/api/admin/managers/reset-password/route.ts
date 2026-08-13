@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/password'
 import { getManagerFromSession, isSuperuser } from '@/lib/auth/manager'
 
@@ -31,13 +31,13 @@ export async function POST(request: NextRequest) {
   const temporaryPassword = generateTemporaryPassword(10)
   const bcryptHash = await hash(temporaryPassword, 12)
 
-  const supabase = createServerClient()
-  const { error } = await supabase
-    .from('managers')
-    .update({ password_hash: wrapTemporaryHash(bcryptHash), temp_password_plain: temporaryPassword })
-    .eq('id', managerId)
-
-  if (error) {
+  try {
+    await db
+      .updateTable('managers')
+      .set({ password_hash: wrapTemporaryHash(bcryptHash), temp_password_plain: temporaryPassword })
+      .where('id', '=', managerId)
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Erro ao redefinir senha.' }, { status: 500 })
   }
 

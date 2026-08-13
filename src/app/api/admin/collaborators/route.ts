@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { isMappingAdmin, isMappingSuperuser } from '@/lib/auth/manager'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
@@ -26,8 +26,7 @@ function parsePositiveInt(raw: string | null, fallback: number, max: number): nu
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const access = await requireMappingAccess(request, supabase)
+  const access = await requireMappingAccess(request)
   if ('error' in access) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
@@ -39,43 +38,51 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const { data: mapping, error: mappingError } = await supabase
-    .from('mappings')
-    .select('config, csv_columns')
-    .eq('id', access.mappingId)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['config', 'csv_columns'])
+    .where('id', '=', access.mappingId)
+    .executeTakeFirst()
 
-  if (mappingError || !mapping) {
+  if (!mapping) {
     return NextResponse.json({ error: 'Mapeamento não encontrado.' }, { status: 404 })
   }
 
   const config = normalizeMappingConfig(mapping.config)
   const csvColumns = Array.isArray(mapping.csv_columns) ? (mapping.csv_columns as string[]) : []
 
-  const { data: collaboratorRows, error: collabError } = await supabase
-    .from('collaborators')
-    .select('id, has_answered, created_at, name, email, birth_date, area, role, gender, race_color, employment_type, education_level, marital_status, disability, which_disability, extra_fields')
-    .eq('mapping_id', access.mappingId)
-
-  if (collabError) {
+  let collaboratorRows
+  try {
+    collaboratorRows = await db
+      .selectFrom('collaborators')
+      .select([
+        'id', 'has_answered', 'created_at', 'name', 'email', 'birth_date', 'area', 'role', 'gender',
+        'race_color', 'employment_type', 'education_level', 'marital_status', 'disability',
+        'which_disability', 'extra_fields',
+      ])
+      .where('mapping_id', '=', access.mappingId)
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao carregar colaboradores.' }, { status: 500 })
   }
 
-  const collaborators = (collaboratorRows ?? []) as CollaboratorRow[]
+  const collaborators = collaboratorRows as CollaboratorRow[]
 
   // Data de conclusão vem de `responses`; `has_answered` sozinho não guarda quando.
   const answeredAtByCollaborator = new Map<string, string>()
   if (collaborators.length > 0) {
-    const { data: responses, error: respError } = await supabase
-      .from('responses')
-      .select('collaborator_id, submitted_at')
-      .in('collaborator_id', collaborators.map((c) => c.id))
-
-    if (respError) {
+    let responses
+    try {
+      responses = await db
+        .selectFrom('responses')
+        .select(['collaborator_id', 'submitted_at'])
+        .where('collaborator_id', 'in', collaborators.map((c) => c.id))
+        .execute()
+    } catch {
       return NextResponse.json({ error: 'Falha ao carregar respostas.' }, { status: 500 })
     }
 
-    for (const response of responses ?? []) {
+    for (const response of responses) {
       const current = answeredAtByCollaborator.get(response.collaborator_id)
       // Mantém a submissão mais recente quando houver mais de uma.
       if (!current || (response.submitted_at && response.submitted_at > current)) {

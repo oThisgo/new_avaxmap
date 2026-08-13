@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
 import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
 import { applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
@@ -315,13 +315,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nome do cliente é obrigatório.' }, { status: 400 })
   }
 
-  const supabase = createServerClient()
   const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingScope.mappingId as string)
+  const mappingRole = await getMappingManagerRole(manager.id, mappingScope.mappingId as string)
   if (!isMappingSuperuser(manager.role, mappingRole)) {
     return NextResponse.json({ error: 'Apenas superuser pode gerar relatórios.' }, { status: 403 })
   }
@@ -329,11 +328,11 @@ export async function POST(request: NextRequest) {
   // Configuração do mapeamento define quais módulos entram no relatório e por
   // quais dimensões ele é estratificado — sem isso o PPTX traria seções vazias de
   // módulos desativados e ignoraria a estratificação escolhida na configuração.
-  const { data: mappingRow } = await supabase
-    .from('mappings')
+  const mappingRow = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = normalizeMappingConfig(mappingRow?.config)
   const includeHse = mappingConfig.modules.includes('hse')
@@ -354,15 +353,23 @@ export async function POST(request: NextRequest) {
   const effectiveStratum = stratumLabels[stratum] ? stratum : Object.keys(stratumLabels)[0]
 
   // 1. Fetch collaborators
-  let collabQuery = supabase
-    .from('collaborators')
-    .select('id, area, role, gender, race_color, employment_type, birth_date, education_level, marital_status, disability, which_disability, has_answered')
-    .eq('mapping_id', mappingScope.mappingId)
+  let collabQuery = db
+    .selectFrom('collaborators')
+    .select([
+      'id', 'area', 'role', 'gender', 'race_color', 'employment_type', 'birth_date',
+      'education_level', 'marital_status', 'disability', 'which_disability', 'has_answered',
+    ])
+    .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
-  const { data: collabData, error: collabErr } = await collabQuery
-  if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
 
-  const collabs = ((collabData ?? []) as CollabRow[])
+  let collabData
+  try {
+    collabData = await collabQuery.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
+
+  const collabs = (collabData as CollabRow[])
     .filter((c) => (excludePj ? !isPjEmploymentType(c.employment_type) : true))
   const collabsWithAge: CollabForStratum[] = collabs.map((c) => ({
     ...c,
@@ -385,13 +392,18 @@ export async function POST(request: NextRequest) {
   const respMap = new Map<string, RespRow>()
 
   if (answeredIds.length > 0) {
-    const { data: respData, error: respErr } = await supabase
-      .from('responses')
-      .select('collaborator_id, hse_score, hse_class, hse_domains, remote_score, remote_class, remote_domains')
-      .in('collaborator_id', answeredIds)
-    if (respErr) return NextResponse.json({ error: respErr.message }, { status: 500 })
+    let respData
+    try {
+      respData = await db
+        .selectFrom('responses')
+        .select(['collaborator_id', 'hse_score', 'hse_class', 'hse_domains', 'remote_score', 'remote_class', 'remote_domains'])
+        .where('collaborator_id', 'in', answeredIds)
+        .execute()
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
+    }
 
-    for (const r of respData ?? []) {
+    for (const r of respData) {
       respMap.set(r.collaborator_id, {
         collaborator_id: r.collaborator_id,
         hse_score:       typeof r.hse_score   === 'number' ? r.hse_score   : null,

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
-import { createServerClient } from '@/lib/supabase/server'
+import type { Updateable } from 'kysely'
+import { db } from '@/lib/db/pool'
+import type { DB } from '@/types/kysely-db'
 import { getManagerFromSession } from '@/lib/auth/manager'
 import { generateTemporaryPassword, wrapTemporaryHash, TEMP_PASSWORD_PREFIX } from '@/lib/auth/password'
 import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
@@ -19,29 +21,28 @@ type ManagerPayload = {
   role?: ManagerRole
 }
 
-async function requireMappingOwner(
-  supabase: ReturnType<typeof createServerClient>,
-  managerId: string,
-  mappingId: string,
-) {
-  const { data: mapping, error: mappingError } = await supabase
-    .from('mappings')
-    .select('id, tenant_id, name, slug, description, status, module_type, is_demo, created_at, updated_at, config, tcle_text, csv_columns')
-    .eq('id', mappingId)
-    .single()
+async function requireMappingOwner(managerId: string, mappingId: string) {
+  const mapping = await db
+    .selectFrom('mappings')
+    .select([
+      'id', 'tenant_id', 'name', 'slug', 'description', 'status', 'module_type',
+      'is_demo', 'created_at', 'updated_at', 'config', 'tcle_text', 'csv_columns',
+    ])
+    .where('id', '=', mappingId)
+    .executeTakeFirst()
 
-  if (mappingError || !mapping) {
+  if (!mapping) {
     return { error: 'Mapeamento não encontrado.', status: 404 } as const
   }
 
-  const { data: link, error: linkError } = await supabase
-    .from('tenant_managers')
+  const link = await db
+    .selectFrom('tenant_managers')
     .select('role')
-    .eq('manager_id', managerId)
-    .eq('tenant_id', mapping.tenant_id)
-    .single()
+    .where('manager_id', '=', managerId)
+    .where('tenant_id', '=', mapping.tenant_id)
+    .executeTakeFirst()
 
-  if (linkError || !link || !['owner', 'admin'].includes(link.role ?? '')) {
+  if (!link || !['owner', 'admin'].includes(link.role ?? '')) {
     return { error: 'Sem permissão para acessar este mapeamento.', status: 403 } as const
   }
 
@@ -57,23 +58,24 @@ export async function GET(request: NextRequest, { params }: Readonly<RouteParams
   }
 
   const { id } = await params
-  const supabase = createServerClient()
 
-  const result = await requireMappingOwner(supabase, manager.id, id)
+  const result = await requireMappingOwner(manager.id, id)
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
 
-  const { data: mappingManagers, error: mmError } = await supabase
-    .from('mapping_managers')
-    .select('manager_id, role')
-    .eq('mapping_id', id)
-
-  if (mmError) {
+  let mappingManagers
+  try {
+    mappingManagers = await db
+      .selectFrom('mapping_managers')
+      .select(['manager_id', 'role'])
+      .where('mapping_id', '=', id)
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao carregar gestores do mapeamento.' }, { status: 500 })
   }
 
-  const managerIds = (mappingManagers ?? []).map((link) => link.manager_id)
+  const managerIds = mappingManagers.map((link) => link.manager_id)
   let managerRows: Array<{
     id: string
     name: string
@@ -84,19 +86,18 @@ export async function GET(request: NextRequest, { params }: Readonly<RouteParams
   }> = []
 
   if (managerIds.length > 0) {
-    const { data, error: managersError } = await supabase
-      .from('managers')
-      .select('id, name, email, is_active, password_hash, temp_password_plain')
-      .in('id', managerIds)
-
-    if (managersError) {
+    try {
+      managerRows = await db
+        .selectFrom('managers')
+        .select(['id', 'name', 'email', 'is_active', 'password_hash', 'temp_password_plain'])
+        .where('id', 'in', managerIds)
+        .execute()
+    } catch {
       return NextResponse.json({ error: 'Falha ao carregar dados dos gestores.' }, { status: 500 })
     }
-
-    managerRows = data ?? []
   }
 
-  const roleByManagerId = new Map((mappingManagers ?? []).map((link) => [link.manager_id, link.role]))
+  const roleByManagerId = new Map(mappingManagers.map((link) => [link.manager_id, link.role]))
 
   const managers = managerRows
     .map((m) => ({
@@ -122,9 +123,8 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
   }
 
   const { id } = await params
-  const supabase = createServerClient()
 
-  const result = await requireMappingOwner(supabase, manager.id, id)
+  const result = await requireMappingOwner(manager.id, id)
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
@@ -144,11 +144,11 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
     return NextResponse.json({ error: 'Nome e e-mail do gestor são obrigatórios.' }, { status: 400 })
   }
 
-  const { data: existingManager } = await supabase
-    .from('managers')
+  const existingManager = await db
+    .selectFrom('managers')
     .select('id')
-    .eq('email', managerEmail)
-    .single()
+    .where('email', '=', managerEmail)
+    .executeTakeFirst()
 
   let targetManagerId: string | null = existingManager?.id ?? null
   let temporaryPassword: string | null = null
@@ -157,45 +157,48 @@ export async function POST(request: NextRequest, { params }: Readonly<RouteParam
     temporaryPassword = generateTemporaryPassword(10)
     const bcryptHash = await hash(temporaryPassword, 12)
 
-    const { data: insertedManager, error: insertManagerError } = await supabase
-      .from('managers')
-      .insert({
-        name: managerName,
-        email: managerEmail,
-        role: 'manager',
-        is_active: true,
-        password_hash: wrapTemporaryHash(bcryptHash),
-        temp_password_plain: temporaryPassword,
-      })
-      .select('id')
-      .single()
+    let insertedManager
+    try {
+      insertedManager = await db
+        .insertInto('managers')
+        .values({
+          name: managerName,
+          email: managerEmail,
+          role: 'manager',
+          is_active: true,
+          password_hash: wrapTemporaryHash(bcryptHash),
+          temp_password_plain: temporaryPassword,
+        })
+        .returning('id')
+        .executeTakeFirst()
+    } catch {
+      insertedManager = undefined
+    }
 
-    if (insertManagerError || !insertedManager) {
+    if (!insertedManager) {
       return NextResponse.json({ error: 'Falha ao criar gestor.' }, { status: 500 })
     }
 
     targetManagerId = insertedManager.id
   }
 
-  const { error: tenantError } = await supabase
-    .from('tenant_managers')
-    .upsert(
-      { tenant_id: result.mapping.tenant_id, manager_id: targetManagerId, role: managerRole },
-      { onConflict: 'tenant_id,manager_id', ignoreDuplicates: false },
-    )
-
-  if (tenantError) {
+  try {
+    await db
+      .insertInto('tenant_managers')
+      .values({ tenant_id: result.mapping.tenant_id, manager_id: targetManagerId, role: managerRole })
+      .onConflict((oc) => oc.columns(['tenant_id', 'manager_id']).doUpdateSet({ role: managerRole }))
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao vincular gestor ao tenant.' }, { status: 500 })
   }
 
-  const { error: mappingError } = await supabase
-    .from('mapping_managers')
-    .upsert(
-      { mapping_id: id, manager_id: targetManagerId, role: managerRole },
-      { onConflict: 'mapping_id,manager_id', ignoreDuplicates: false },
-    )
-
-  if (mappingError) {
+  try {
+    await db
+      .insertInto('mapping_managers')
+      .values({ mapping_id: id, manager_id: targetManagerId, role: managerRole })
+      .onConflict((oc) => oc.columns(['mapping_id', 'manager_id']).doUpdateSet({ role: managerRole }))
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao vincular gestor ao mapeamento.' }, { status: 500 })
   }
 
@@ -228,9 +231,8 @@ export async function PATCH(request: NextRequest, { params }: Readonly<RoutePara
   }
 
   const { id } = await params
-  const supabase = createServerClient()
 
-  const result = await requireMappingOwner(supabase, manager.id, id)
+  const result = await requireMappingOwner(manager.id, id)
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
@@ -242,7 +244,7 @@ export async function PATCH(request: NextRequest, { params }: Readonly<RoutePara
     return NextResponse.json({ error: 'Payload inválido.' }, { status: 400 })
   }
 
-  const updates: Record<string, unknown> = {}
+  const updates: Updateable<DB['mappings']> = {}
 
   if (payload.status !== undefined) {
     if (!['draft', 'active', 'archived'].includes(payload.status)) {
@@ -283,8 +285,13 @@ export async function PATCH(request: NextRequest, { params }: Readonly<RoutePara
       )
     }
 
-    updates.config = config
-    updates.csv_columns = csvColumns
+    // config/csvColumns vêm tipados frouxamente (Record<string, unknown> / string[]) de
+    // buildMappingConfig — o Kysely exige o formato Json exato da coluna jsonb.
+    // csvColumns é array no topo: o driver `pg` serializaria isso como literal
+    // de array do Postgres em vez de JSON, e a coluna é jsonb — precisa do
+    // JSON.stringify explícito (ver mesmo ajuste em ../route.ts).
+    updates.config = config as unknown as DB['mappings']['config']
+    updates.csv_columns = JSON.stringify(csvColumns) as unknown as DB['mappings']['csv_columns']
     updates.module_type = moduleType
   }
 
@@ -292,14 +299,62 @@ export async function PATCH(request: NextRequest, { params }: Readonly<RoutePara
     return NextResponse.json({ error: 'Nada para atualizar.' }, { status: 400 })
   }
 
-  const { error: updateError } = await supabase
-    .from('mappings')
-    .update(updates)
-    .eq('id', id)
-
-  if (updateError) {
+  try {
+    await db.updateTable('mappings').set(updates).where('id', '=', id).execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao atualizar o mapeamento.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, updated: Object.keys(updates) })
+}
+
+type MappingDeletePayload = {
+  /** Nome do mapeamento digitado pelo gestor para confirmar — checado contra o nome real. */
+  confirm_name?: string
+}
+
+export async function DELETE(request: NextRequest, { params }: Readonly<RouteParams>) {
+  const sessionToken = request.cookies.get('manager_session')?.value
+  const manager = await getManagerFromSession(sessionToken)
+
+  if (!manager) {
+    return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+  }
+
+  const { id } = await params
+
+  const result = await requireMappingOwner(manager.id, id)
+  if ('error' in result) {
+    return NextResponse.json({ error: result.error }, { status: result.status })
+  }
+
+  let payload: MappingDeletePayload = {}
+  try {
+    payload = (await request.json()) as MappingDeletePayload
+  } catch {
+    // Corpo vazio cai no valor padrão acima e falha na checagem de nome abaixo.
+  }
+
+  // Defesa em profundidade além da confirmação na UI: sem o nome exato do
+  // mapeamento, a exclusão (irreversível, cascateia colaboradores e
+  // respostas) não acontece — nem via chamada direta à API.
+  const confirmName = typeof payload.confirm_name === 'string' ? payload.confirm_name.trim() : ''
+  if (confirmName !== result.mapping.name) {
+    return NextResponse.json(
+      { error: 'Digite o nome do mapeamento exatamente como exibido para confirmar a exclusão.' },
+      { status: 400 },
+    )
+  }
+
+  try {
+    // Colaboradores (collaborators.mapping_id), respostas
+    // (responses.collaborator_id) e vínculos de gestor com este mapeamento
+    // (mapping_managers.mapping_id) caem junto via ON DELETE CASCADE — as
+    // contas de gestor em si (`managers`) não são apagadas, só o vínculo.
+    await db.deleteFrom('mappings').where('id', '=', id).execute()
+  } catch {
+    return NextResponse.json({ error: 'Falha ao excluir o mapeamento.' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true })
 }

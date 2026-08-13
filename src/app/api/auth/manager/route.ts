@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { createHash, timingSafeEqual } from 'crypto'
 import { compare, hash } from 'bcryptjs'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
@@ -55,12 +55,11 @@ export async function POST(request: NextRequest) {
   const normalizedMappingSlug = mapping_slug?.trim().toLowerCase() || null
   let mappingRole: string | null = null
 
-  const supabase = createServerClient()
-  const { data: manager, error } = await supabase
-    .from('managers')
-    .select('id, name, role, password_hash, is_active')
-    .eq('email', normalizedEmail)
-    .single()
+  const manager = await db
+    .selectFrom('managers')
+    .select(['id', 'name', 'role', 'password_hash', 'is_active'])
+    .where('email', '=', normalizedEmail)
+    .executeTakeFirst()
 
   const storedHash = manager?.password_hash ?? ''
   const unwrapped = unwrapHash(storedHash)
@@ -80,29 +79,29 @@ export async function POST(request: NextRequest) {
     match = timingSafeLegacyMatch(password, unwrapped.hash)
   }
 
-  if (error || !manager || !match || !manager.is_active) {
+  if (!manager || !match || !manager.is_active) {
     return NextResponse.json({ error: 'Credenciais inválidas' }, { status: 401 })
   }
 
   if (normalizedMappingSlug) {
-    const { data: mapping, error: mappingError } = await supabase
-      .from('mappings')
-      .select('id, slug, status')
-      .eq('slug', normalizedMappingSlug)
-      .single()
+    const mapping = await db
+      .selectFrom('mappings')
+      .select(['id', 'slug', 'status'])
+      .where('slug', '=', normalizedMappingSlug)
+      .executeTakeFirst()
 
-    if (mappingError || !mapping || mapping.status !== 'active') {
+    if (!mapping || mapping.status !== 'active') {
       return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 404 })
     }
 
-    const { data: access, error: accessError } = await supabase
-      .from('mapping_managers')
-      .select('id, role')
-      .eq('mapping_id', mapping.id)
-      .eq('manager_id', manager.id)
-      .single()
+    const access = await db
+      .selectFrom('mapping_managers')
+      .select(['id', 'role'])
+      .where('mapping_id', '=', mapping.id)
+      .where('manager_id', '=', manager.id)
+      .executeTakeFirst()
 
-    if (accessError || !access) {
+    if (!access) {
       return NextResponse.json({ error: 'Sem acesso a este mapeamento.' }, { status: 403 })
     }
 
@@ -112,15 +111,12 @@ export async function POST(request: NextRequest) {
   // Migração progressiva: hash legado -> bcrypt após login bem-sucedido.
   if (usedLegacyHash) {
     const newHash = await hash(password, 12)
-    const { error: updateError } = await supabase
-      .from('managers')
-      .update({ password_hash: newHash })
-      .eq('id', manager.id)
-
-    if (updateError) {
+    try {
+      await db.updateTable('managers').set({ password_hash: newHash }).where('id', '=', manager.id).execute()
+    } catch (updateError) {
       console.error('[auth:manager] falha ao migrar hash de senha para bcrypt', {
         managerId: manager.id,
-        error: updateError.message,
+        error: updateError instanceof Error ? updateError.message : updateError,
       })
     }
   }

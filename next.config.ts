@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Gera .next/standalone com um server.js autocontido e apenas os
+  // node_modules necessários em runtime — usado pelo Dockerfile.
+  output: "standalone",
   async headers() {
     return [
       {

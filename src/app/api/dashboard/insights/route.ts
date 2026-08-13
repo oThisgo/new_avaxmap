@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
 import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
@@ -309,55 +309,69 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'GOOGLE_GENERATIVE_AI_API_KEY não configurada.' }, { status: 500 })
   }
 
-  const supabase = createServerClient()
   const mappingScope = await getMappingScopeContext(request, { requireMappingScope: true })
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingScope.mappingId as string)
+  const mappingRole = await getMappingManagerRole(manager.id, mappingScope.mappingId as string)
   if (!isMappingSuperuser(manager.role, mappingRole)) {
     return NextResponse.json({ error: 'Apenas superuser pode gerar insights.' }, { status: 403 })
   }
 
-  const { data: mapping } = await supabase
-    .from('mappings')
+  const mapping = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = normalizeMappingConfig(mapping?.config)
   const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
-  let collabQuery = supabase
-    .from('collaborators')
-    .select('id, area, role, gender, race_color, employment_type')
-    .eq('mapping_id', mappingScope.mappingId)
+  let collabQuery = db
+    .selectFrom('collaborators')
+    .select(['id', 'area', 'role', 'gender', 'race_color', 'employment_type'])
+    .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
-  const { data: collabs, error: collabErr } = await collabQuery
-  if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
 
-  const allIds = (collabs ?? []).map((c) => c.id)
+  let collabs
+  try {
+    collabs = await collabQuery.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
+
+  const allIds = collabs.map((c) => c.id)
   if (allIds.length === 0) {
     return NextResponse.json({ error: 'Nenhum colaborador encontrado para os filtros selecionados.' }, { status: 404 })
   }
 
   // has_answered is on collaborators, not responses — filter collaborator IDs first
-  const { data: answeredCollabs, error: answeredErr } = await supabase
-    .from('collaborators')
-    .select('id')
-    .eq('mapping_id', mappingScope.mappingId)
-    .in('id', allIds)
-    .eq('has_answered', true)
-  if (answeredErr) return NextResponse.json({ error: answeredErr.message }, { status: 500 })
+  let answeredCollabs
+  try {
+    answeredCollabs = await db
+      .selectFrom('collaborators')
+      .select('id')
+      .where('mapping_id', '=', mappingScope.mappingId)
+      .where('id', 'in', allIds)
+      .where('has_answered', '=', true)
+      .execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores respondentes.' }, { status: 500 })
+  }
 
-  const answeredIds = (answeredCollabs ?? []).map((c) => c.id)
+  const answeredIds = answeredCollabs.map((c) => c.id)
 
-  const { data: responses, error: respErr } = await supabase
-    .from('responses')
-    .select('collaborator_id, hse_domains, hse_class, hse_score, remote_domains, remote_class, remote_score')
-    .in('collaborator_id', answeredIds)
-  if (respErr) return NextResponse.json({ error: respErr.message }, { status: 500 })
+  let responses
+  try {
+    responses = await db
+      .selectFrom('responses')
+      .select(['collaborator_id', 'hse_domains', 'hse_class', 'hse_score', 'remote_domains', 'remote_class', 'remote_score'])
+      .where('collaborator_id', 'in', answeredIds)
+      .execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
+  }
 
   const totalCollabs = allIds.length
   const totalAnswered = answeredIds.length

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import type { Updateable } from 'kysely'
+import { db } from '@/lib/db/pool'
+import type { DB } from '@/types/kysely-db'
 import { calculateHSE } from '@/lib/analytics/hse'
 import { calculateRemote } from '@/lib/analytics/remote'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
@@ -16,8 +18,6 @@ import { normalizeMappingConfig } from '@/lib/mapping/config'
 
 const SUBMIT_WINDOW_MS = 60_000
 const SUBMIT_LIMIT = 6
-
-type SupabaseClient = ReturnType<typeof createServerClient>
 
 interface SubmitAnswerInput {
   questionCode: string
@@ -176,18 +176,21 @@ function clearCollaboratorCookie(response: NextResponse): NextResponse {
   return response
 }
 
-async function saveOptionalFields(
-  supabase: SupabaseClient,
-  collaboratorId: string,
-  remoteStatus: string,
-): Promise<void> {
-  const { error } = await supabase.rpc('save_optional_collaborator_fields', {
-    p_id: collaboratorId,
-    p_remote_status: remoteStatus,
-  })
-
-  if (error) {
-    console.error('[responses] erro ao salvar remote_status via RPC', error.message)
+/**
+ * Antes era `supabase.rpc('save_optional_collaborator_fields', { p_id, p_remote_status })`
+ * — função Postgres criada direto no SQL editor do Supabase, sem migration no
+ * repo. Corpo confirmado via `\sf save_optional_collaborator_fields` no
+ * Supabase: só este UPDATE, incluindo o touch em updated_at.
+ */
+async function saveOptionalFields(collaboratorId: string, remoteStatus: string): Promise<void> {
+  try {
+    await db
+      .updateTable('collaborators')
+      .set({ remote_status: remoteStatus, updated_at: new Date().toISOString() })
+      .where('id', '=', collaboratorId)
+      .execute()
+  } catch (err) {
+    console.error('[responses] erro ao salvar remote_status', err instanceof Error ? err.message : err)
   }
 }
 
@@ -250,15 +253,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: ietrApplyError }, { status: 400 })
   }
 
-  const supabase = createServerClient()
-
   let mappingIdFromSlug: string | null = null
   if (collaboratorMappingSlug) {
-    const { data: mapping } = await supabase
-      .from('mappings')
-      .select('id, status, config')
-      .eq('slug', collaboratorMappingSlug)
-      .single()
+    const mapping = await db
+      .selectFrom('mappings')
+      .select(['id', 'status', 'config'])
+      .where('slug', '=', collaboratorMappingSlug)
+      .executeTakeFirst()
 
     if (!mapping || mapping.status !== 'active') {
       return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 401 })
@@ -312,18 +313,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: requiredAnswersError }, { status: 400 })
   }
 
-  const collaboratorResult = await supabase
-    .from('collaborators')
-    .select('id, has_answered, mapping_id, gender')
-    .eq('id', collaboratorId)
-    .single()
+  const collaborator = await db
+    .selectFrom('collaborators')
+    .select(['id', 'has_answered', 'mapping_id', 'gender'])
+    .where('id', '=', collaboratorId)
+    .executeTakeFirst()
 
-  const collaborator = collaboratorResult.data as {
-    id: string
-    has_answered: boolean
-    mapping_id: string | null
-    gender: string | null
-  } | null
   if (!collaborator) {
     return NextResponse.json({ error: 'Colaborador não encontrado.' }, { status: 404 })
   }
@@ -382,32 +377,45 @@ export async function POST(request: NextRequest) {
     weightedScore: d.weightedScore,
   })) : []
 
-  const responseInsert = await supabase
-    .from('responses')
-    .insert({
-      collaborator_id: collaborator.id,
-      submitted_at: new Date().toISOString(),
-      answers: answersJson,
-      hse_domains: hseDomainsJson,
-      remote_domains: remoteDomainsJson,
-      hse_score: hasHseModule ? hseResult.finalScore : null,
-      hse_class: hasHseModule ? hseResult.classification : null,
-      remote_score: hasIetrModule ? remoteResult.finalScore : null,
-      remote_class: hasIetrModule ? remoteResult.classification : null,
-      mental_health_answers: mentalHealthAnswers,
-      mental_health_derived: mentalHealthResult,
-      mental_health_score: mentalHealthResult?.index ?? null,
-      mental_health_class: mentalHealthResult?.classification ?? null,
-      job_observations: body.jobObservations?.trim() || null,
-    })
-    .select('id')
-    .single()
+  let insertedResponse
+  try {
+    insertedResponse = await db
+      .insertInto('responses')
+      .values({
+        collaborator_id: collaborator.id,
+        submitted_at: new Date().toISOString(),
+        // answers/hse_domains/remote_domains são arrays no topo — o driver `pg`
+        // serializa array top-level como literal de array do Postgres
+        // (`{...}`), não como JSON (`[...]`), e as colunas são jsonb: sem o
+        // JSON.stringify explícito, a escrita falha com "invalid input syntax
+        // for type json" sempre que o array não estiver vazio (ver mesmo
+        // ajuste em src/app/api/client/mappings/route.ts).
+        answers: JSON.stringify(answersJson),
+        hse_domains: JSON.stringify(hseDomainsJson),
+        remote_domains: JSON.stringify(remoteDomainsJson),
+        hse_score: hasHseModule ? hseResult.finalScore : null,
+        hse_class: hasHseModule ? hseResult.classification : null,
+        remote_score: hasIetrModule ? remoteResult.finalScore : null,
+        remote_class: hasIetrModule ? remoteResult.classification : null,
+        mental_health_answers: mentalHealthAnswers,
+        mental_health_derived: mentalHealthResult as unknown as DB['responses']['mental_health_derived'],
+        mental_health_score: mentalHealthResult?.index ?? null,
+        mental_health_class: mentalHealthResult?.classification ?? null,
+        job_observations: body.jobObservations?.trim() || null,
+      })
+      .returning('id')
+      .executeTakeFirst()
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('Falha ao inserir response:', err)
+    insertedResponse = undefined
+  }
 
-  if (!responseInsert.data) {
+  if (!insertedResponse) {
     return NextResponse.json({ error: 'Falha ao salvar a resposta.' }, { status: 500 })
   }
 
-  const collaboratorUpdate: Record<string, unknown> = {
+  const collaboratorUpdate: Updateable<DB['collaborators']> = {
     has_answered: true,
   }
 
@@ -421,17 +429,14 @@ export async function POST(request: NextRequest) {
     collaboratorUpdate.which_disability = body.socio.which_disability?.trim() || null
   }
 
-  const { error: coreUpdateError } = await supabase
-    .from('collaborators')
-    .update(collaboratorUpdate)
-    .eq('id', collaborator.id)
-
-  if (coreUpdateError) {
-    console.error('[responses] erro ao atualizar has_answered', coreUpdateError.message)
+  try {
+    await db.updateTable('collaborators').set(collaboratorUpdate).where('id', '=', collaborator.id).execute()
+  } catch (err) {
+    console.error('[responses] erro ao atualizar has_answered', err instanceof Error ? err.message : err)
   }
 
   if (hasSocioModule) {
-    await saveOptionalFields(supabase, collaborator.id, body.socio.remote_status || (hasIetrModule ? 'Sim' : 'Não'))
+    await saveOptionalFields(collaborator.id, body.socio.remote_status || (hasIetrModule ? 'Sim' : 'Não'))
   }
 
   return clearCollaboratorCookie(NextResponse.json({ ok: true }))

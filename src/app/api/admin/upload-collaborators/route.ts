@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { sql } from 'kysely'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession, isMappingAdmin } from '@/lib/auth/manager'
 import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
@@ -124,16 +125,14 @@ export async function POST(request: NextRequest) {
       ? mappingSlugFromBody.trim().toLowerCase()
       : null
 
-  const supabase = createServerClient()
-
   if (!mappingId && mappingSlug) {
-    const { data: mapping, error: mappingError } = await supabase
-      .from('mappings')
-      .select('id, status, config')
-      .eq('slug', mappingSlug)
-      .single()
+    const mapping = await db
+      .selectFrom('mappings')
+      .select(['id', 'status', 'config'])
+      .where('slug', '=', mappingSlug)
+      .executeTakeFirst()
 
-    if (mappingError || !mapping || mapping.status !== 'active') {
+    if (!mapping || mapping.status !== 'active') {
       return NextResponse.json({ error: 'Mapeamento inválido para importação.' }, { status: 404 })
     }
 
@@ -147,16 +146,16 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const mappingRole = await getMappingManagerRole(supabase, manager.id, mappingId)
+  const mappingRole = await getMappingManagerRole(manager.id, mappingId)
   if (!isMappingAdmin(manager.role, mappingRole)) {
     return NextResponse.json({ error: 'Acesso negado. Apenas administradores podem importar colaboradores.' }, { status: 403 })
   }
 
-  const { data: mappingConfigResult } = await supabase
-    .from('mappings')
+  const mappingConfigResult = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingId)
-    .single()
+    .where('id', '=', mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = (mappingConfigResult?.config ?? {}) as MappingConfig
   const normalizedConfig = normalizeMappingConfig(mappingConfigResult?.config)
@@ -307,22 +306,48 @@ export async function POST(request: NextRequest) {
 
   // CPFs já estão hasheados em rows; busca para diferenciar insert de update
   const incomingHashedCpfs = rows.map((r) => r.cpf)
-  const { data: existing } = await supabase
-    .from('collaborators')
+  const existing = await db
+    .selectFrom('collaborators')
     .select('cpf')
-    .eq('mapping_id', mappingId)
-    .in('cpf', incomingHashedCpfs)
+    .where('mapping_id', '=', mappingId)
+    .where('cpf', 'in', incomingHashedCpfs)
+    .execute()
 
-  const existingCpfSet = new Set((existing ?? []).map((e) => e.cpf))
+  const existingCpfSet = new Set(existing.map((e) => e.cpf))
 
-  // Upsert: atualiza name, email, birth_date, area, role, gender, race_color, employment_type, organization
-  // NÃO toca em: has_answered
-  const { error: upsertError } = await supabase
-    .from('collaborators')
-    .upsert(rows, { onConflict: 'mapping_id,cpf', ignoreDuplicates: false })
-
-  if (upsertError) {
-    return NextResponse.json({ error: `Erro no banco: ${upsertError.message}` }, { status: 500 })
+  // Upsert: atualiza name, email, area, role, employment_type, extra_fields sempre a
+  // partir do CSV (nunca vêm de outro lugar). NÃO toca em: has_answered.
+  //
+  // birth_date/gender/race_color/marital_status/education_level/disability/which_disability
+  // podem vir do CSV OU do formulário sociodemográfico que o colaborador preenche
+  // (ver collaboratorUpdate em src/app/api/responses/route.ts) — um reupload de CSV
+  // sem essas colunas mapeadas não pode apagar o que o colaborador já respondeu.
+  // COALESCE: usa o valor novo do CSV quando ele existe, senão preserva o que já
+  // estava salvo (nunca sobrescreve um valor real com null).
+  try {
+    await db
+      .insertInto('collaborators')
+      .values(rows)
+      .onConflict((oc) =>
+        oc.columns(['mapping_id', 'cpf']).doUpdateSet((eb) => ({
+          name: eb.ref('excluded.name'),
+          email: eb.ref('excluded.email'),
+          area: eb.ref('excluded.area'),
+          role: eb.ref('excluded.role'),
+          employment_type: eb.ref('excluded.employment_type'),
+          extra_fields: eb.ref('excluded.extra_fields'),
+          birth_date: sql`coalesce(excluded.birth_date, collaborators.birth_date)`,
+          gender: sql`coalesce(excluded.gender, collaborators.gender)`,
+          race_color: sql`coalesce(excluded.race_color, collaborators.race_color)`,
+          marital_status: sql`coalesce(excluded.marital_status, collaborators.marital_status)`,
+          education_level: sql`coalesce(excluded.education_level, collaborators.education_level)`,
+          disability: sql`coalesce(excluded.disability, collaborators.disability)`,
+          which_disability: sql`coalesce(excluded.which_disability, collaborators.which_disability)`,
+        })),
+      )
+      .execute()
+  } catch (err) {
+    return NextResponse.json({ error: `Erro no banco: ${err instanceof Error ? err.message : err}` }, { status: 500 })
   }
 
   const inserted = rows.filter((r) => !existingCpfSet.has(r.cpf as string)).length

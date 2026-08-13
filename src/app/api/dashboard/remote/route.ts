@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { IETR_QUESTIONS } from '@/lib/analytics/ietr-definition'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
@@ -39,47 +39,55 @@ function classifyRemote(avg: number): 'Condição adequada' | 'Zona de atenção
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const mappingScope = await requireMappingAccess(request, supabase)
+  const mappingScope = await requireMappingAccess(request)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const { data: mapping } = await supabase
-    .from('mappings')
+  const mapping = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = normalizeMappingConfig(mapping?.config)
   const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
-  let collabQuery = supabase
-    .from('collaborators')
-    .select('id, remote_status')
-    .eq('mapping_id', mappingScope.mappingId)
+  let collabQuery = db
+    .selectFrom('collaborators')
+    .select(['id', 'remote_status'])
+    .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
-  const { data: collabs, error: collabErr } = await collabQuery
-  if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
+
+  let collabs
+  try {
+    collabs = await collabQuery.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
 
   // Exclui colaboradores que explicitamente responderam que não trabalham remotamente.
   // Quem não tem remote_status (dados antigos) é mantido para compatibilidade.
   const NEGATIVE_REMOTE = /^n[aã]o/i
-  const collaboratorIds = (collabs ?? [])
+  const collaboratorIds = collabs
     .filter((c) => {
-      const rs = (c as Record<string, unknown>).remote_status as string | null | undefined
+      const rs = c.remote_status
       if (!rs) return true
       return !NEGATIVE_REMOTE.test(rs.trim())
     })
     .map((c) => c.id)
   if (collaboratorIds.length === 0) return NextResponse.json({ domains: [], class_distribution: [] })
 
-  const { data: responses, error } = await supabase
-    .from('responses')
-    .select('remote_domains, remote_class, remote_score, answers')
-    .in('collaborator_id', collaboratorIds)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  let responses
+  try {
+    responses = await db
+      .selectFrom('responses')
+      .select(['remote_domains', 'remote_class', 'remote_score', 'answers'])
+      .where('collaborator_id', 'in', collaboratorIds)
+      .execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
+  }
 
   const domainAgg: Record<string, { sum: number; count: number; weight: number }> = {}
   const questionAgg: Record<string, { sum: number; count: number }> = {}
@@ -90,7 +98,7 @@ export async function GET(request: NextRequest) {
     if (r.remote_class) classMap[r.remote_class] = (classMap[r.remote_class] ?? 0) + 1
     if ((r as { remote_score?: number | null }).remote_score != null) { scoreSum += (r as { remote_score: number }).remote_score; scoreCount++ }
     if (Array.isArray(r.remote_domains)) {
-      for (const d of r.remote_domains as RemoteDomainEntry[]) {
+      for (const d of r.remote_domains as unknown as RemoteDomainEntry[]) {
         const normalizedDomain = normalizeRemoteDomainName(d.domain)
         if (!domainAgg[normalizedDomain]) {
           domainAgg[normalizedDomain] = { sum: 0, count: 0, weight: d.weight }
@@ -128,7 +136,7 @@ export async function GET(request: NextRequest) {
       return {
         domain: q.domain,
         question_code: q.code,
-        question_text: q.text,
+        question_text: mappingConfig.ietr_question_text_overrides[q.code] ?? q.text,
         avg_score: avg,
         classification: classifyRemote(avg),
         responses: agg.count,

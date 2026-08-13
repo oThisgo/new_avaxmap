@@ -1,0 +1,21 @@
+node_modules
+.next
+.git
+.github
+
+# env files: segredos vêm do --env-file no `docker run`, nunca da imagem
+.env
+.env.*
+
+*.md
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+.vscode
+.idea
+.claude
+graphify-out
+supabase

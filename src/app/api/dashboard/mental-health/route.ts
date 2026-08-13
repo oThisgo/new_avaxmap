@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
 import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
 import {
   DEPRESSION_SYMPTOM_OPTIONS,
+  DISASTER_CONTACT_OPTIONS,
+  DISASTER_TYPE_OPTIONS,
+  INTENSITY_OPTIONS,
+  INTERNET_FIELDS,
   LIFE_EVENT_OPTIONS,
   LIFE_EVENT_OTHER_FIELD,
   STRESS_SOURCE_OPTIONS,
@@ -14,6 +18,7 @@ import {
   SUPPORT_OTHER_FIELD,
   SUPPORT_SOURCE_OPTIONS,
   type CheckboxOption,
+  type EnumOption,
 } from '@/lib/analytics/mental-health-definition'
 import {
   MENTAL_HEALTH_COMPONENT_WEIGHTS,
@@ -47,6 +52,13 @@ type DescriptiveGroup = {
   otherLabel?: string
 }
 
+/** Rótulos curtos para os 3 booleanos de uso de internet (SM15–SM17), que não têm um CheckboxGroupQuestion próprio para herdar labels. */
+const INTERNET_BEHAVIOR_LABELS: Record<string, string> = {
+  technology_online_time: 'Sente que deveria diminuir o tempo on-line',
+  technology_anxiety: 'Sente ansiedade sem verificar o celular',
+  technology_social_media: 'Sente-se triste ou frustrado ao se comparar nas redes sociais',
+}
+
 const DESCRIPTIVE_GROUPS: readonly DescriptiveGroup[] = [
   { key: 'stress_symptoms', title: 'Sintomas de estresse (último mês)', options: STRESS_SYMPTOM_OPTIONS },
   { key: 'stress_sources', title: 'Fontes de estresse na rotina', options: STRESS_SOURCE_OPTIONS },
@@ -67,9 +79,16 @@ const DESCRIPTIVE_GROUPS: readonly DescriptiveGroup[] = [
     otherField: LIFE_EVENT_OTHER_FIELD,
     otherLabel: 'Outro',
   },
+  {
+    key: 'internet_behaviors',
+    title: 'Comportamentos de uso de internet',
+    options: INTERNET_FIELDS.map((field) => ({ field, label: INTERNET_BEHAVIOR_LABELS[field] })),
+  },
 ]
 
-/** Blocos categóricos que viram distribuição no dashboard, na ordem das faixas. */
+const CLASSIFICATION_ORDER = ['Excelente', 'Bom', 'Regular', 'Insatisfatório', 'Sem dados'] as const
+
+/** Blocos categóricos que viram distribuição (pizza) no dashboard, na ordem das faixas. */
 const DISTRIBUTION_ORDER: Record<string, readonly string[]> = {
   estresse: ['Ausência de Sintomas', 'Sintomas Leves', 'Sintomas Moderados', 'Sintomas Graves'],
   sintomas_depressivos: ['Ausência de Sintomas', 'Sintomas Leves', 'Sintomas Moderados', 'Sintomas Graves'],
@@ -77,6 +96,12 @@ const DISTRIBUTION_ORDER: Record<string, readonly string[]> = {
   rede_de_apoio: ['Sim', 'Não', 'Não Informado'],
   tabaco: ['Não fumante', 'Ex-fumante', 'Fumante passivo', 'Fumante', 'Não Informado'],
   alcool: ['Não Bebe', 'Consumo Moderado', 'Padrão Binge', 'Não Informado'],
+  // ansiedade_climatica não é um componente do índice, é a exposição a
+  // desastre natural/ambiental (SM03) exibida à parte. percepcao_saude e
+  // qualidade_de_vida não entram aqui — são nota 0–10 pura, exibidas como
+  // histograma (ver NumericAccumulator/tobacco_cigarettes/health_score/
+  // life_quality_score mais abaixo), não como pizza.
+  ansiedade_climatica: ['Sim', 'Não', 'Não Informado'],
 }
 
 const DISTRIBUTION_TITLES: Record<string, string> = {
@@ -86,9 +111,28 @@ const DISTRIBUTION_TITLES: Record<string, string> = {
   rede_de_apoio: 'Possui rede de apoio',
   tabaco: 'Uso de tabaco',
   alcool: 'Uso de álcool',
+  ansiedade_climatica: 'Exposição a desastre natural/ambiental',
 }
 
-const CLASSIFICATION_ORDER = ['Excelente', 'Bom', 'Regular', 'Insatisfatório', 'Sem dados'] as const
+type EnumDescriptiveGroup = {
+  key: string
+  title: string
+  /** Campo em MentalHealthAnswers de onde vem o valor (numérico, um dos `options`). */
+  field: string
+  options: readonly EnumOption[]
+}
+
+/**
+ * Perguntas de acompanhamento da exposição a desastre (SM04–SM07), só
+ * respondidas por quem marcou exposição em SM03 — por isso a % de cada item
+ * aqui é sobre o total de expostos, não sobre todos os respondentes do módulo.
+ */
+const CLIMATE_ENUM_GROUPS: readonly EnumDescriptiveGroup[] = [
+  { key: 'disaster_type', title: 'Tipo de desastre mais intenso (entre expostos)', field: 'disaster_type', options: DISASTER_TYPE_OPTIONS },
+  { key: 'disaster_contact', title: 'Contato com o desastre (entre expostos)', field: 'disaster_contact', options: DISASTER_CONTACT_OPTIONS },
+  { key: 'disaster_vulnerability', title: 'Vulnerabilidade a desastres futuros (entre expostos)', field: 'disaster_vulnerability_feeling', options: INTENSITY_OPTIONS },
+  { key: 'disaster_safety_concern', title: 'Preocupação com segurança do lar/trabalho (entre expostos)', field: 'disaster_safety_concern', options: INTENSITY_OPTIONS },
+]
 
 function toOrderedDistribution(counts: Map<string, number>, order: readonly string[]) {
   const rows = order
@@ -102,33 +146,73 @@ function toOrderedDistribution(counts: Map<string, number>, order: readonly stri
   return rows
 }
 
+/** Acumulador de um valor numérico bruto (nota 0–10, cigarros/dia) — vira histograma + média/min/máx. */
+class NumericAccumulator {
+  private counts = new Map<number, number>()
+  private sum = 0
+  private count = 0
+  private min = Infinity
+  private max = -Infinity
+
+  add(value: number) {
+    this.counts.set(value, (this.counts.get(value) ?? 0) + 1)
+    this.sum += value
+    this.count++
+    if (value < this.min) this.min = value
+    if (value > this.max) this.max = value
+  }
+
+  toJSON() {
+    const histogram = [...this.counts.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([value, count]) => ({
+        value,
+        count,
+        pct: this.count > 0 ? Math.round((count / this.count) * 1000) / 10 : 0,
+      }))
+
+    return {
+      respondents: this.count,
+      avg: this.count > 0 ? Math.round((this.sum / this.count) * 100) / 100 : null,
+      min: this.count > 0 ? this.min : null,
+      max: this.count > 0 ? this.max : null,
+      histogram,
+    }
+  }
+}
+
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const mappingScope = await requireMappingAccess(request, supabase)
+  const mappingScope = await requireMappingAccess(request)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const { data: mapping } = await supabase
-    .from('mappings')
+  const mapping = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = normalizeMappingConfig(mapping?.config)
   const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
-  let collabQuery = supabase
-    .from('collaborators')
-    .select('id, gender')
-    .eq('mapping_id', mappingScope.mappingId)
+  let collabQuery = db
+    .selectFrom('collaborators')
+    .select(['id', 'gender'])
+    .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
-  const { data: collabs, error: collabErr } = await collabQuery
-  if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
 
-  const genderById = new Map((collabs ?? []).map((c) => [c.id as string, (c as { gender?: string | null }).gender ?? null]))
+  let collabs
+  try {
+    collabs = await collabQuery.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
+
+  const genderById = new Map(collabs.map((c) => [c.id, c.gender ?? null]))
   const collaboratorIds = [...genderById.keys()]
 
+  const emptyHistogram = { respondents: 0, avg: null, min: null, max: null, histogram: [] }
   const empty = {
     respondents: 0,
     avg_index: null,
@@ -137,28 +221,58 @@ export async function GET(request: NextRequest) {
     distributions: [],
     suicide: { at_risk: 0, total: 0 },
     descriptive: [],
+    tobacco_cigarettes: emptyHistogram,
+    health_score: emptyHistogram,
+    life_quality_score: emptyHistogram,
   }
   if (collaboratorIds.length === 0) return NextResponse.json(empty)
 
-  const { data: responses, error } = await supabase
-    .from('responses')
-    .select('collaborator_id, mental_health_answers, mental_health_derived')
-    .in('collaborator_id', collaboratorIds)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  let responses
+  try {
+    responses = await db
+      .selectFrom('responses')
+      .select(['collaborator_id', 'mental_health_answers', 'mental_health_derived'])
+      .where('collaborator_id', 'in', collaboratorIds)
+      .execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
+  }
 
   const results: MentalHealthResult[] = []
-  for (const row of (responses ?? []) as ResponseRow[]) {
-    if (row.mental_health_derived) {
-      results.push(row.mental_health_derived)
-      continue
-    }
+  // Exposição a desastre (SM03) e suas perguntas de acompanhamento (SM04–SM07)
+  // não fazem parte de MentalHealthResult (não são componente do índice), então
+  // saem das respostas brutas — sempre disponíveis junto do cache derivado, já
+  // que responses/route.ts grava as duas colunas juntas na submissão.
+  const climateExposureCounts = new Map<string, number>()
+  const climateEnumCounts = new Map<string, Map<number, number>>()
+  let exposedTotal = 0
+
+  for (const row of responses as ResponseRow[]) {
+    const result = row.mental_health_derived
+      ?? (row.mental_health_answers
+        ? calculateMentalHealth(normalizeMentalHealthAnswers(row.mental_health_answers), {
+            gender: genderById.get(row.collaborator_id) ?? null,
+          })
+        : null)
+    if (!result) continue
+    results.push(result)
+
     if (!row.mental_health_answers) continue
-    results.push(
-      calculateMentalHealth(normalizeMentalHealthAnswers(row.mental_health_answers), {
-        gender: genderById.get(row.collaborator_id) ?? null,
-      }),
-    )
+    const rawAnswers = normalizeMentalHealthAnswers(row.mental_health_answers)
+    const exposed = rawAnswers.exposed_natural_disaster
+    const exposedLabel = exposed === true ? 'Sim' : exposed === false ? 'Não' : 'Não Informado'
+    climateExposureCounts.set(exposedLabel, (climateExposureCounts.get(exposedLabel) ?? 0) + 1)
+
+    if (exposed === true) {
+      exposedTotal++
+      for (const group of CLIMATE_ENUM_GROUPS) {
+        const value = rawAnswers[group.field]
+        if (typeof value !== 'number') continue
+        const bucket = climateEnumCounts.get(group.key) ?? new Map<number, number>()
+        bucket.set(value, (bucket.get(value) ?? 0) + 1)
+        climateEnumCounts.set(group.key, bucket)
+      }
+    }
   }
 
   if (results.length === 0) return NextResponse.json(empty)
@@ -172,6 +286,11 @@ export async function GET(request: NextRequest) {
   const distributionCounts = new Map<string, Map<string, number>>()
   const flagCounts = new Map<string, number>()
   let suicideAtRisk = 0
+  // Histogramas de valor bruto — ver ValueHistogramCard no dashboard: mostram
+  // a distribuição exata (não faixas), com média/mín/máx, no lugar de uma pizza.
+  const cigarettesPerDay = new NumericAccumulator()
+  const healthScore = new NumericAccumulator()
+  const lifeQualityScore = new NumericAccumulator()
 
   for (const result of results) {
     if (typeof result.index === 'number') {
@@ -180,6 +299,10 @@ export async function GET(request: NextRequest) {
     }
     classCounts.set(result.classification, (classCounts.get(result.classification) ?? 0) + 1)
     if (result.suicide?.atRisk) suicideAtRisk++
+
+    if (typeof result.tobacco?.cigarettesPerDay === 'number') cigarettesPerDay.add(result.tobacco.cigarettesPerDay)
+    if (typeof result.perception?.healthScore === 'number') healthScore.add(result.perception.healthScore)
+    if (typeof result.perception?.lifeQualityScore === 'number') lifeQualityScore.add(result.perception.lifeQualityScore)
 
     for (const component of result.components ?? []) {
       // A média por componente só considera quem respondeu; a distribuição
@@ -202,6 +325,8 @@ export async function GET(request: NextRequest) {
       if (value) flagCounts.set(field, (flagCounts.get(field) ?? 0) + 1)
     }
   }
+
+  distributionCounts.set('ansiedade_climatica', climateExposureCounts)
 
   const components = (Object.keys(MENTAL_HEALTH_COMPONENT_WEIGHTS) as MentalHealthComponentKey[])
     .map((key) => {
@@ -242,6 +367,28 @@ export async function GET(request: NextRequest) {
     return { key: group.key, title: group.title, items }
   })
 
+  // Segue o mesmo padrão de DESCRIPTIVE_GROUPS acima (todas as opções aparecem,
+  // mesmo com contagem 0 — ver "Risco de Suicídio" no dashboard), mas a % é
+  // sobre quem está exposto (exposedTotal), não sobre todos os respondentes:
+  // só quem respondeu "Sim" em SM03 vê essas perguntas no formulário.
+  const climateDescriptive = exposedTotal > 0
+    ? CLIMATE_ENUM_GROUPS.map((group) => {
+        const counts = climateEnumCounts.get(group.key) ?? new Map<number, number>()
+        const items = group.options
+          .map((option) => {
+            const count = counts.get(option.value) ?? 0
+            return {
+              field: String(option.value),
+              label: option.label,
+              count,
+              pct: Math.round((count / exposedTotal) * 1000) / 10,
+            }
+          })
+          .sort((a, b) => b.count - a.count)
+        return { key: group.key, title: group.title, items }
+      })
+    : []
+
   return NextResponse.json({
     respondents: results.length,
     avg_index: indexCount > 0 ? Math.round((indexSum / indexCount) * 100) / 100 : null,
@@ -249,6 +396,9 @@ export async function GET(request: NextRequest) {
     components,
     distributions,
     suicide: { at_risk: suicideAtRisk, total: results.length },
-    descriptive,
+    descriptive: [...descriptive, ...climateDescriptive],
+    tobacco_cigarettes: cigarettesPerDay.toJSON(),
+    health_score: healthScore.toJSON(),
+    life_quality_score: lifeQualityScore.toJSON(),
   })
 }

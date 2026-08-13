@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { AlertPresence } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Modal } from '@/components/ui/modal'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
@@ -22,6 +23,9 @@ import {
 } from '@/components/mapping/MappingConfigEditor'
 import { MANAGER_ROLE_OPTIONS, managerRoleLabel, type ManagerRole } from '@/lib/mapping/manager-roles'
 import { SOCIODEMOGRAPHIC_QUESTION_KEYS } from '@/lib/mapping/sociodemographic-questions'
+import { computeColumnLockMaps } from '@/lib/mapping/column-locks'
+import { TcleEditor } from '@/components/tcle/TcleEditor'
+import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 
 type MappingDetail = {
   id: string
@@ -65,6 +69,15 @@ function buildDraftFromConfig(mapping: MappingDetail): MappingConfigDraft {
   const dashboardFilters = new Set(asStringArray(config.dashboard_filters, []))
   const demographicColumns = new Set(asStringArray(config.demographic_columns, []))
   const displayNames = asStringRecord(config.column_display_names)
+  const columnMapping = asStringRecord(config.column_mapping)
+  const credentialColumn = typeof config.credential_column === 'string' ? config.credential_column : ''
+
+  // Recalculado a partir de column_mapping (não do `locked`/`locked_reason`
+  // persistido) para que mapeamentos criados antes da distinção entre
+  // bloqueio de identidade e bloqueio sociodemográfico (ver
+  // src/lib/mapping/column-locks.ts) já abram com o filtro liberado nas
+  // colunas sociodemográficas reconhecidas, sem precisar reenviar o CSV.
+  const { identityLockByColumn, demographicLockByColumn } = computeColumnLockMaps(columnMapping, credentialColumn)
 
   const profiles: ColumnProfileDraft[] = rawProfiles.length > 0
     ? rawProfiles.flatMap((raw) => {
@@ -72,24 +85,29 @@ function buildDraftFromConfig(mapping: MappingDetail): MappingConfigDraft {
         const row = raw as Record<string, unknown>
         const sourceName = typeof row.source_name === 'string' ? row.source_name : ''
         if (!sourceName) return []
+        const isDemographicLocked = demographicLockByColumn.has(sourceName)
         return [{
           source_name: sourceName,
           display_name: typeof row.display_name === 'string' && row.display_name.trim()
             ? row.display_name
             : sourceName,
           is_dashboard_filter: row.is_dashboard_filter === true,
-          is_demographic: row.is_demographic === true,
-          locked: row.locked === true,
-          locked_reason: typeof row.locked_reason === 'string' ? row.locked_reason : null,
+          is_demographic: isDemographicLocked ? true : row.is_demographic === true,
+          locked: identityLockByColumn.has(sourceName),
+          locked_reason: identityLockByColumn.get(sourceName) ?? null,
+          demographic_locked: isDemographicLocked,
+          demographic_locked_reason: demographicLockByColumn.get(sourceName) ?? null,
         }]
       })
     : csvColumns.map((column) => ({
         source_name: column,
         display_name: displayNames[column] ?? column,
         is_dashboard_filter: dashboardFilters.has(column),
-        is_demographic: demographicColumns.has(column),
-        locked: false,
-        locked_reason: null,
+        is_demographic: demographicLockByColumn.has(column) ? true : demographicColumns.has(column),
+        locked: identityLockByColumn.has(column),
+        locked_reason: identityLockByColumn.get(column) ?? null,
+        demographic_locked: demographicLockByColumn.has(column),
+        demographic_locked_reason: demographicLockByColumn.get(column) ?? null,
       }))
 
   return {
@@ -154,7 +172,17 @@ export default function MappingConfigPage() {
   const [configSaving, setConfigSaving] = useState(false)
   const [configSuccess, setConfigSuccess] = useState('')
 
+  const [tcleDraft, setTcleDraft] = useState('')
+  const [tcleBaseline, setTcleBaseline] = useState('')
+  const [tcleSaving, setTcleSaving] = useState(false)
+  const [tcleSuccess, setTcleSuccess] = useState('')
+
   const [openingMapping, setOpeningMapping] = useState(false)
+
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   async function handleOpenMapping(slug: string) {
     setError('')
@@ -179,6 +207,7 @@ export default function MappingConfigPage() {
   }
 
   const configDirty = configDraft !== null && JSON.stringify(configDraft) !== configBaseline
+  const tcleDirty = tcleDraft !== tcleBaseline
 
   async function loadMapping() {
     setLoading(true)
@@ -197,6 +226,10 @@ export default function MappingConfigPage() {
         const draft = buildDraftFromConfig(data.mapping as MappingDetail)
         setConfigDraft(draft)
         setConfigBaseline(JSON.stringify(draft))
+
+        const tcleText = typeof data.mapping.tcle_text === 'string' ? data.mapping.tcle_text : ''
+        setTcleDraft(tcleText)
+        setTcleBaseline(tcleText)
       }
     } catch {
       setError('Erro de conexão ao carregar o mapeamento.')
@@ -279,6 +312,32 @@ export default function MappingConfigPage() {
     }
   }
 
+  async function handleSaveTcle() {
+    if (!tcleDirty) return
+    setError('')
+    setTcleSuccess('')
+    setTcleSaving(true)
+    try {
+      const sanitized = sanitizeRichTextHtml(tcleDraft)
+      const res = await fetch(`/api/client/mappings/${mappingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tcle_text: isRichTextEmpty(sanitized) ? '' : sanitized }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'Não foi possível salvar o TCLE.')
+        return
+      }
+      setTcleSuccess('TCLE salvo. Novos acessos ao formulário já veem o texto atualizado.')
+      await loadMapping()
+    } catch {
+      setError('Erro de conexão ao salvar o TCLE.')
+    } finally {
+      setTcleSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (mappingId) loadMapping()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,6 +363,35 @@ export default function MappingConfigPage() {
       setError('Erro de conexão ao atualizar o status.')
     } finally {
       setStatusSaving(false)
+    }
+  }
+
+  function openDeleteModal() {
+    setDeleteConfirmText('')
+    setDeleteError('')
+    setDeleteModalOpen(true)
+  }
+
+  async function handleDeleteMapping() {
+    if (!mapping) return
+    setDeleteError('')
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/client/mappings/${mappingId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_name: deleteConfirmText.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setDeleteError(data.error ?? 'Não foi possível excluir o mapeamento.')
+        return
+      }
+      router.push('/dashboard/client')
+    } catch {
+      setDeleteError('Erro de conexão ao excluir o mapeamento.')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -496,6 +584,50 @@ export default function MappingConfigPage() {
             )}
 
             <Card className="mb-6 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold mb-1">TCLE</h2>
+                  <p className="text-sm" style={{ color: T.textMuted }}>
+                    Termo de Consentimento Livre e Esclarecido exibido ao colaborador antes de responder
+                    o formulário. Alterações valem para novos acessos — quem já aceitou o termo não
+                    precisa aceitar de novo.
+                  </p>
+                </div>
+                <Button
+                  onClick={handleSaveTcle}
+                  disabled={!tcleDirty || tcleSaving}
+                  loading={tcleSaving}
+                >
+                  {tcleSaving ? 'Salvando...' : 'Salvar TCLE'}
+                </Button>
+              </div>
+
+              {tcleSuccess && (
+                <div
+                  className="mt-4 rounded-lg px-4 py-3 text-sm"
+                  style={{
+                    backgroundColor: `${BRAND_COLORS.primary}18`,
+                    border: `1px solid ${BRAND_COLORS.primary}55`,
+                    color: T.text,
+                  }}
+                >
+                  {tcleSuccess}
+                </div>
+              )}
+
+              <div className="mt-4">
+                <TcleEditor
+                  value={tcleDraft}
+                  onChange={(next) => {
+                    setTcleDraft(next)
+                    setTcleSuccess('')
+                  }}
+                  disabled={tcleSaving}
+                />
+              </div>
+            </Card>
+
+            <Card className="mb-6 p-5">
               <h2 className="text-lg font-semibold mb-1">Gestores cadastrados</h2>
               <p className="text-sm mb-4" style={{ color: T.textMuted }}>
                 Emails e códigos de acesso dos gestores vinculados a este mapeamento.
@@ -618,9 +750,61 @@ export default function MappingConfigPage() {
                 {MANAGER_ROLE_OPTIONS.find((opt) => opt.value === role)?.description}
               </p>
             </Card>
+
+            <Card className="mt-6 p-5" style={{ border: `1px solid ${BRAND_COLORS.danger}66` }}>
+              <h2 className="text-lg font-semibold mb-1" style={{ color: BRAND_COLORS.danger }}>Zona de risco</h2>
+              <p className="text-sm mb-4" style={{ color: T.textMuted }}>
+                Excluir o mapeamento apaga permanentemente todos os colaboradores, respostas e vínculos
+                de gestores com ele. Gestores que também atuam em outros mapeamentos continuam com
+                acesso a eles — só o vínculo com este mapeamento é removido. Essa ação não pode ser desfeita.
+              </p>
+              <Button
+                variant="outline"
+                style={{ color: BRAND_COLORS.danger }}
+                onClick={openDeleteModal}
+              >
+                Excluir mapeamento
+              </Button>
+            </Card>
           </>
         )}
       </div>
+
+      <Modal open={deleteModalOpen} onClose={deleting ? undefined : () => setDeleteModalOpen(false)}>
+        <h2 className="text-lg font-semibold" style={{ color: BRAND_COLORS.danger }}>Excluir mapeamento</h2>
+        <p className="mt-2 text-sm" style={{ color: T.textMuted }}>
+          Isso apaga permanentemente <strong>{mapping?.name}</strong> e todos os colaboradores, respostas
+          e vínculos de gestores ligados a ele. Não há como desfazer.
+        </p>
+        <label className="mt-4 block text-sm">
+          <span className="mb-1.5 block text-xs" style={{ color: T.textMuted }}>
+            Digite <strong>{mapping?.name}</strong> para confirmar
+          </span>
+          <Input
+            type="text"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder={mapping?.name}
+            disabled={deleting}
+          />
+        </label>
+
+        <AlertPresence show={!!deleteError}>{deleteError}</AlertPresence>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <Button variant="outline" onClick={() => setDeleteModalOpen(false)} disabled={deleting}>
+            Cancelar
+          </Button>
+          <Button
+            variant="danger"
+            onClick={handleDeleteMapping}
+            disabled={deleting || deleteConfirmText.trim() !== mapping?.name}
+            loading={deleting}
+          >
+            {deleting ? 'Excluindo...' : 'Excluir permanentemente'}
+          </Button>
+        </div>
+      </Modal>
     </main>
   )
 }

@@ -1,3 +1,4 @@
+import { sql, type Expression } from 'kysely'
 import { decryptFieldOrNull } from '@/lib/security/crypto'
 import { isCustomFieldKey, customFieldSlug } from './column-key'
 
@@ -89,9 +90,11 @@ export function isPushableFilterKey(key: string): boolean {
   return !NON_PUSHABLE_FILTER_KEYS.has(key)
 }
 
-export function collaboratorFieldColumnExpr(key: string): string {
+export function collaboratorFieldColumnExpr(key: string): string | Expression<unknown> {
   if (isCustomFieldKey(key)) {
-    return `extra_fields->>${customFieldSlug(key)}`
+    // extra_fields é jsonb; a chave do CSV vira parâmetro ligado (não interpolação
+    // de string), então não precisa confiar só no slug já ser [a-z0-9_].
+    return sql`extra_fields ->> ${customFieldSlug(key)}`
   }
   return key
 }
@@ -109,20 +112,21 @@ export function parseCollaboratorFilters(
 }
 
 interface FilterableQuery {
-  eq: (column: string, value: string) => unknown
+  where: (column: string | Expression<unknown>, operator: '=', value: string) => unknown
 }
 
 /**
- * Aplica apenas as chaves filtráveis via SQL (ver isPushableFilterKey) a uma query
- * do Supabase. Tipado estruturalmente (não genérico sobre o tipo real do query
- * builder) para evitar que o TS tente unificar o tipo profundamente aninhado do
- * PostgrestFilterBuilder, o que estoura o limite de instanciação de tipos.
+ * Aplica apenas as chaves filtráveis via SQL (ver isPushableFilterKey) a uma
+ * query do Kysely. Tipado estruturalmente (não genérico sobre o tipo real do
+ * SelectQueryBuilder) para evitar que o TS tente unificar o tipo profundamente
+ * genérico do builder, o que estoura o limite de instanciação de tipos —
+ * mesmo truque que a versão Supabase deste helper já usava.
  */
 export function applyCollaboratorFilters<Q extends FilterableQuery>(query: Q, filters: Record<string, string>): Q {
   let result: unknown = query
   for (const [key, value] of Object.entries(filters)) {
     if (!isPushableFilterKey(key)) continue
-    result = (result as FilterableQuery).eq(collaboratorFieldColumnExpr(key), value)
+    result = (result as FilterableQuery).where(collaboratorFieldColumnExpr(key), '=', value)
   }
   return result as Q
 }

@@ -265,7 +265,7 @@ function InsightsHeader({ generatedAt, isSuperuser, loading, hasData, isDark, T,
         <div>
           <h2 className="text-base font-semibold" style={{ color: T.text }}>Insights com IA</h2>
           <p className="text-xs mt-0.5" style={{ color: T.textMuted }}>
-            Análise gerada pelo Gemini
+            Análise gerada pela Lumen
             {generatedAt && <span className="ml-1 opacity-60">· {generatedAt}</span>}
           </p>
         </div>

@@ -11,6 +11,7 @@ import { AlertPresence } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
+import { TcleEditor } from '@/components/tcle/TcleEditor'
 import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
@@ -18,6 +19,7 @@ import { QuestionOrderEditor } from '@/components/mapping/QuestionOrderEditor'
 import { MODULE_DEFS, QUESTION_EDITABLE_MODULES, SociodemographicQuestionsPicker } from '@/components/mapping/MappingConfigEditor'
 import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
 import { SOCIODEMOGRAPHIC_QUESTION_KEYS } from '@/lib/mapping/sociodemographic-questions'
+import { computeColumnLockMaps } from '@/lib/mapping/column-locks'
 
 type QuestionEditableModuleKey = keyof typeof QUESTION_EDITABLE_MODULES
 
@@ -36,13 +38,6 @@ interface SubmitLikeEvent {
 type CreatedCredential = {
   email: string
   temporary_password: string
-}
-
-type TcleFormatState = {
-  bold: boolean
-  italic: boolean
-  underline: boolean
-  highlight: boolean
 }
 
 type CsvInferenceResponse = {
@@ -65,6 +60,8 @@ type ColumnProfileCard = {
   is_demographic: boolean
   locked: boolean
   locked_reason: string | null
+  demographic_locked: boolean
+  demographic_locked_reason: string | null
 }
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: MappingStatus; label: string }> = [
@@ -76,58 +73,15 @@ function toggleInList(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 }
 
-function prettyFieldName(fieldKey: string): string {
-  const labels: Record<string, string> = {
-    full_name: 'Nome completo',
-    cpf: 'CPF',
-    employee_code: 'Código/Matrícula',
-    email: 'E-mail',
-    birth_date: 'Data de nascimento',
-    gender: 'Gênero',
-    race_color: 'Raça/Cor',
-    education_level: 'Escolaridade',
-    marital_status: 'Estado civil',
-    disability: 'Deficiência',
-    disability_type: 'Tipo de deficiência',
-    age_range: 'Faixa etária',
-  }
-  return labels[fieldKey] ?? fieldKey
-}
-
 function buildColumnCards(
   headers: string[],
   fieldMap: Record<string, string>,
   credentialColumn: string,
   dashboardFilterSuggestions: string[],
 ): ColumnProfileCard[] {
-  const lockByColumn = new Map<string, string>()
+  const { identityLockByColumn, demographicLockByColumn } = computeColumnLockMaps(fieldMap, credentialColumn)
 
-  for (const [field, column] of Object.entries(fieldMap)) {
-    if (!column) continue
-    lockByColumn.set(column, `Campo padrão: ${prettyFieldName(field)}`)
-  }
-
-  if (credentialColumn) {
-    lockByColumn.set(credentialColumn, 'Credencial de acesso')
-  }
-
-  const demographicFields = new Set([
-    'age_range',
-    'birth_date',
-    'gender',
-    'race_color',
-    'education_level',
-    'marital_status',
-    'disability',
-    'disability_type',
-  ])
-
-  const demographicColumns = new Set(
-    Object.entries(fieldMap)
-      .filter(([field]) => demographicFields.has(field))
-      .map(([, column]) => column),
-  )
-
+  const demographicColumns = new Set(demographicLockByColumn.keys())
   const suggestedFilters = new Set(dashboardFilterSuggestions)
 
   return headers.map((header) => ({
@@ -135,8 +89,10 @@ function buildColumnCards(
     display_name: header,
     is_dashboard_filter: suggestedFilters.has(header),
     is_demographic: demographicColumns.has(header),
-    locked: lockByColumn.has(header),
-    locked_reason: lockByColumn.get(header) ?? null,
+    locked: identityLockByColumn.has(header),
+    locked_reason: identityLockByColumn.get(header) ?? null,
+    demographic_locked: demographicLockByColumn.has(header),
+    demographic_locked_reason: demographicLockByColumn.get(header) ?? null,
   }))
 }
 
@@ -145,21 +101,18 @@ function reapplyColumnLocks(
   fieldMap: Record<string, string>,
   credentialColumn: string,
 ): ColumnProfileCard[] {
-  const lockByColumn = new Map<string, string>()
-
-  for (const [field, column] of Object.entries(fieldMap)) {
-    if (!column) continue
-    lockByColumn.set(column, `Campo padrão: ${prettyFieldName(field)}`)
-  }
-
-  if (credentialColumn) {
-    lockByColumn.set(credentialColumn, 'Credencial de acesso')
-  }
+  const { identityLockByColumn, demographicLockByColumn } = computeColumnLockMaps(fieldMap, credentialColumn)
 
   return cards.map((card) => ({
     ...card,
-    locked: lockByColumn.has(card.source_name),
-    locked_reason: lockByColumn.get(card.source_name) ?? null,
+    locked: identityLockByColumn.has(card.source_name),
+    locked_reason: identityLockByColumn.get(card.source_name) ?? null,
+    demographic_locked: demographicLockByColumn.has(card.source_name),
+    demographic_locked_reason: demographicLockByColumn.get(card.source_name) ?? null,
+    // Um campo que deixou de ser sociodemográfico reconhecido (ex.: gestor
+    // desmapeou a coluna) pode manter o dado demográfico marcado manualmente;
+    // só força ligado quando o reconhecimento automático está ativo.
+    is_demographic: demographicLockByColumn.has(card.source_name) ? true : card.is_demographic,
   }))
 }
 
@@ -194,7 +147,6 @@ export default function CreateMappingPage() {
     saude_mental: {},
   })
   const [managers, setManagers] = useState<ManagerInput[]>([{ name: '', email: '', role: 'viewer' }])
-  const tcleEditorRef = useRef<HTMLDivElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
 
   const [loading, setLoading] = useState(false)
@@ -202,43 +154,6 @@ export default function CreateMappingPage() {
   const [success, setSuccess] = useState('')
   const [createdCredentials, setCreatedCredentials] = useState<CreatedCredential[]>([])
   const [failedManagers, setFailedManagers] = useState<Array<{ email: string; error: string }>>([])
-  const [tcleFormatState, setTcleFormatState] = useState<TcleFormatState>({
-    bold: false,
-    italic: false,
-    underline: false,
-    highlight: false,
-  })
-
-  function isSelectionInsideEditor(): boolean {
-    if (!tcleEditorRef.current) return false
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0) return false
-    const anchorNode = selection.anchorNode
-    return !!anchorNode && tcleEditorRef.current.contains(anchorNode)
-  }
-
-  function isHighlightValueActive(value: unknown): boolean {
-    if (typeof value !== 'string') return false
-    const normalized = value.toLowerCase().replace(/\s+/g, '')
-    return normalized.includes('#fde68a') || normalized.includes('rgb(253,230,138)')
-  }
-
-  function refreshTcleFormatState() {
-    if (!isSelectionInsideEditor()) {
-      setTcleFormatState({ bold: false, italic: false, underline: false, highlight: false })
-      return
-    }
-
-    const hiliteValue = document.queryCommandValue('hiliteColor')
-    const backValue = document.queryCommandValue('backColor')
-
-    setTcleFormatState({
-      bold: document.queryCommandState('bold'),
-      italic: document.queryCommandState('italic'),
-      underline: document.queryCommandState('underline'),
-      highlight: isHighlightValueActive(hiliteValue) || isHighlightValueActive(backValue),
-    })
-  }
 
   function updateManager(index: number, patch: Partial<ManagerInput>) {
     setManagers((prev) => prev.map((m, i) => (i === index ? { ...m, ...patch } : m)))
@@ -259,7 +174,13 @@ export default function CreateMappingPage() {
     setColumnCards((prev) =>
       prev.map((card) => {
         if (card.source_name !== sourceName) return card
+        // Coluna com dado identificável: nem filtro nem demográfico podem mudar.
         if (card.locked && (patch.is_dashboard_filter !== undefined || patch.is_demographic !== undefined)) {
+          return card
+        }
+        // Coluna sociodemográfica reconhecida: só o demográfico fica travado
+        // (sempre ligado) — filtro no dashboard continua livre para marcar.
+        if (card.demographic_locked && patch.is_demographic !== undefined) {
           return card
         }
         return { ...card, ...patch }
@@ -281,60 +202,6 @@ export default function CreateMappingPage() {
     setCredentialCandidates((prev) => prev.filter((candidate) => candidate !== sourceName))
     setCredentialColumn((prev) => (prev === sourceName ? '' : prev))
   }
-
-  function applyTcleCommand(command: 'bold' | 'italic' | 'underline') {
-    if (!tcleEditorRef.current) return
-    tcleEditorRef.current.focus()
-    document.execCommand(command)
-    setTcleText(tcleEditorRef.current.innerHTML)
-    refreshTcleFormatState()
-  }
-
-  function applyTcleHighlight() {
-    if (!tcleEditorRef.current) return
-    tcleEditorRef.current.focus()
-    const shouldRemoveHighlight = tcleFormatState.highlight
-    document.execCommand('styleWithCSS', false, 'true')
-    document.execCommand('hiliteColor', false, shouldRemoveHighlight ? 'transparent' : '#FDE68A')
-    document.execCommand('styleWithCSS', false, 'false')
-    setTcleText(tcleEditorRef.current.innerHTML)
-    refreshTcleFormatState()
-  }
-
-  useEffect(() => {
-    if (!tcleEditorRef.current) return
-    if (tcleEditorRef.current.innerHTML === tcleText) return
-    tcleEditorRef.current.innerHTML = tcleText
-  }, [tcleText])
-
-  useEffect(() => {
-    function handleSelectionChange() {
-      refreshTcleFormatState()
-    }
-
-    const editor = tcleEditorRef.current
-    if (editor) {
-      editor.addEventListener('keyup', handleSelectionChange)
-      editor.addEventListener('mouseup', handleSelectionChange)
-    }
-    document.addEventListener('selectionchange', handleSelectionChange)
-
-    return () => {
-      if (editor) {
-        editor.removeEventListener('keyup', handleSelectionChange)
-        editor.removeEventListener('mouseup', handleSelectionChange)
-      }
-      document.removeEventListener('selectionchange', handleSelectionChange)
-    }
-  }, [])
-
-  const tcleButtonStyle = (active: boolean, isHighlightButton = false): React.CSSProperties => ({
-    border: `1px solid ${active ? BRAND_COLORS.primary : T.border}`,
-    backgroundColor: active
-      ? `${BRAND_COLORS.primary}22`
-      : (isHighlightButton ? '#FEF3C7' : T.surface2),
-    color: active ? BRAND_COLORS.primary : (isHighlightButton ? '#92400E' : T.text),
-  })
 
   async function handleInferCsvColumns() {
     if (!csvFile) {
@@ -737,7 +604,15 @@ export default function CreateMappingPage() {
                             Bloqueado
                           </span>
                         )}
-                        {!card.locked && (
+                        {!card.locked && card.demographic_locked && (
+                          <span
+                            className="rounded-full px-2 py-1 text-[11px]"
+                            style={{ color: T.textMuted, backgroundColor: T.surface }}
+                          >
+                            Campo padrão
+                          </span>
+                        )}
+                        {!card.locked && !card.demographic_locked && (
                           <button
                             type="button"
                             onClick={() => removeColumnCard(card.source_name)}
@@ -760,8 +635,10 @@ export default function CreateMappingPage() {
                       </div>
                     </div>
 
-                    {card.locked_reason && (
-                      <p className="mt-1 text-xs" style={{ color: T.textFaint }}>{card.locked_reason}</p>
+                    {(card.locked_reason || card.demographic_locked_reason) && (
+                      <p className="mt-1 text-xs" style={{ color: T.textFaint }}>
+                        {card.locked_reason ?? card.demographic_locked_reason}
+                      </p>
                     )}
 
                     <label htmlFor={`display-${card.source_name}`} className="mt-3 block text-xs" style={{ color: T.textMuted }}>
@@ -789,7 +666,7 @@ export default function CreateMappingPage() {
                         <input
                           type="checkbox"
                           checked={card.is_demographic}
-                          disabled={card.locked}
+                          disabled={card.locked || card.demographic_locked}
                           onChange={(e) => updateColumnCard(card.source_name, { is_demographic: e.target.checked })}
                         />
                         <span>Dado demográfico</span>
@@ -807,69 +684,9 @@ export default function CreateMappingPage() {
 
           <section className="rounded-2xl p-4 sm:p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>
             <h2 className="text-lg font-semibold">TCLE</h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => applyTcleCommand('bold')}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold"
-                style={tcleButtonStyle(tcleFormatState.bold)}
-                aria-label="Negrito"
-                title="Negrito"
-                aria-pressed={tcleFormatState.bold}
-              >
-                <span style={{ fontWeight: 700 }}>B</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyTcleCommand('italic')}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sm"
-                style={tcleButtonStyle(tcleFormatState.italic)}
-                aria-label="Itálico"
-                title="Itálico"
-                aria-pressed={tcleFormatState.italic}
-              >
-                <span style={{ fontStyle: 'italic', fontWeight: 600 }}>I</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyTcleCommand('underline')}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sm"
-                style={tcleButtonStyle(tcleFormatState.underline)}
-                aria-label="Sublinhado"
-                title="Sublinhado"
-                aria-pressed={tcleFormatState.underline}
-              >
-                <span style={{ textDecoration: 'underline', fontWeight: 600 }}>U</span>
-              </button>
-              <button
-                type="button"
-                onClick={applyTcleHighlight}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md"
-                style={tcleButtonStyle(tcleFormatState.highlight, true)}
-                aria-label="Marca-texto"
-                title="Marca-texto"
-                aria-pressed={tcleFormatState.highlight}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M15 5l4 4" />
-                  <path d="M4 20l5.5-1.5L20 8 16 4 5.5 14.5z" />
-                  <path d="M3 21h7" />
-                </svg>
-              </button>
+            <div className="mt-3">
+              <TcleEditor value={tcleText} onChange={setTcleText} disabled={loading} />
             </div>
-            <div
-              ref={tcleEditorRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={(e) => setTcleText((e.currentTarget as HTMLDivElement).innerHTML)}
-              className="mt-2 min-h-[180px] w-full rounded-lg px-3 py-2 text-sm outline-none"
-              style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.text }}
-            />
-            {isRichTextEmpty(tcleText) && (
-              <p className="mt-2 text-xs" style={{ color: T.textFaint }}>
-                Dica: selecione um trecho para aplicar formatação como negrito, itálico, sublinhado e marca-texto.
-              </p>
-            )}
           </section>
 
           <section className="rounded-2xl p-4 sm:p-5" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface }}>

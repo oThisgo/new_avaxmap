@@ -78,19 +78,18 @@ export default function MappingConsentimentoPage() {
         >
           <Card className="p-6 sm:p-8">
             <h1 className="text-2xl font-semibold" style={{ color: T.text }}>
-              Privacidade e Segurança das Informações
+              Privacidade e Proteção das Informações
             </h1>
 
             <div className="mt-4 space-y-3 text-sm leading-relaxed" style={{ color: T.textMuted }}>
               <p>
-                Esta pesquisa segue os princípios da LGPD e existe para apoiar melhorias no ambiente de trabalho.
+                Esta iniciativa é conduzida em conformidade com a LGPD e tem como objetivo apoiar melhorias no ambiente de trabalho.
               </p>
               <p>
-                Suas respostas são tratadas com confidencialidade e utilizadas apenas em análises consolidadas e agregadas,
-                sem exposição individual.
+                As informações fornecidas são tratadas de forma confidencial e utilizadas exclusivamente em análises consolidadas. Nenhuma resposta individual será disponibilizada à organização.
               </p>
               <p>
-                O objetivo é preservar seu anonimato e garantir segurança no tratamento dos dados durante todo o processo.
+                Medidas de proteção são adotadas durante todo o processo para preservar a privacidade e garantir a segurança dos dados.
               </p>
             </div>
 
@@ -100,7 +99,7 @@ export default function MappingConsentimentoPage() {
                 checked={accepted}
                 onChange={setAccepted}
                 disabled={loading}
-                label={<b>Declaro que li e concordo com os termos de privacidade e uso agregado das informações.</b>}
+                label={<b>Confirmo que li as informações sobre privacidade e tratamento de dados.</b>}
               />
 
               <AlertPresence show={!!error}>{error}</AlertPresence>

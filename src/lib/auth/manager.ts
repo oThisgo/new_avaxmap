@@ -1,4 +1,4 @@
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 
 export { isAdmin, isSuperuser, isMappingAdmin, isMappingSuperuser } from './roles'
 
@@ -36,14 +36,13 @@ export async function getManagerFromSession(
     const parsed = parseSessionToken(sessionToken)
     if (!parsed) return null
 
-    const supabase = createServerClient()
-    const { data, error } = await supabase
-      .from('managers')
-      .select('id, name, email, role, is_active, password_hash')
-      .eq('id', parsed.managerId)
-      .single()
+    const data = await db
+      .selectFrom('managers')
+      .select(['id', 'name', 'email', 'role', 'is_active', 'password_hash'])
+      .where('id', '=', parsed.managerId)
+      .executeTakeFirst()
 
-    if (error || !data || !data.is_active) return null
+    if (!data || !data.is_active) return null
     return {
       id: data.id,
       name: data.name ?? '',

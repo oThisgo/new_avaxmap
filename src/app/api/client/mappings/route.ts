@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
+import type { DB } from '@/types/kysely-db'
 import { getManagerFromSession } from '@/lib/auth/manager'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/password'
@@ -38,21 +39,14 @@ function randomSuffix(length = 6): string {
     .toLowerCase()
 }
 
-async function generateUniqueMappingSlug(
-  supabase: ReturnType<typeof createServerClient>,
-  name: string,
-): Promise<string> {
+async function generateUniqueMappingSlug(name: string): Promise<string> {
   const base = normalizeSlug(name) || 'mapeamento'
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const candidate = `${base}-${randomSuffix(6)}`
-    const { data } = await supabase
-      .from('mappings')
-      .select('id')
-      .eq('slug', candidate)
-      .limit(1)
+    const data = await db.selectFrom('mappings').select('id').where('slug', '=', candidate).limit(1).execute()
 
-    if (!data || data.length === 0) {
+    if (data.length === 0) {
       return candidate
     }
   }
@@ -68,41 +62,43 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
   }
 
-  const supabase = createServerClient()
-
-  const { data: links, error: linkError } = await supabase
-    .from('tenant_managers')
-    .select('tenant_id, role')
-    .eq('manager_id', manager.id)
-    .order('created_at', { ascending: true })
-
-  if (linkError) {
+  let links
+  try {
+    links = await db
+      .selectFrom('tenant_managers')
+      .select(['tenant_id', 'role'])
+      .where('manager_id', '=', manager.id)
+      .orderBy('created_at', 'asc')
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao carregar vínculo do cliente.' }, { status: 500 })
   }
 
-  const firstLink = (links ?? [])[0]
+  const firstLink = links[0]
   if (!firstLink?.tenant_id) {
     return NextResponse.json({ tenant: null, mappings: [] })
   }
 
-  const { data: tenant, error: tenantError } = await supabase
-    .from('tenants')
-    .select('id, name, slug, is_active')
-    .eq('id', firstLink.tenant_id)
-    .single()
+  const tenant = await db
+    .selectFrom('tenants')
+    .select(['id', 'name', 'slug', 'is_active'])
+    .where('id', '=', firstLink.tenant_id)
+    .executeTakeFirst()
 
-  if (tenantError || !tenant) {
+  if (!tenant) {
     return NextResponse.json({ error: 'Cliente não encontrado.' }, { status: 404 })
   }
 
-  const { data: mappings, error: mappingsError } = await supabase
-    .from('mappings')
-    .select('id, name, slug, description, status, module_type, is_demo, updated_at')
-    .eq('tenant_id', tenant.id)
-    .order('is_demo', { ascending: false })
-    .order('updated_at', { ascending: false })
-
-  if (mappingsError) {
+  let mappings
+  try {
+    mappings = await db
+      .selectFrom('mappings')
+      .select(['id', 'name', 'slug', 'description', 'status', 'module_type', 'is_demo', 'updated_at'])
+      .where('tenant_id', '=', tenant.id)
+      .orderBy('is_demo', 'desc')
+      .orderBy('updated_at', 'desc')
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao carregar mapeamentos do cliente.' }, { status: 500 })
   }
 
@@ -114,7 +110,7 @@ export async function GET(request: NextRequest) {
       role: firstLink.role,
       is_active: tenant.is_active,
     },
-    mappings: mappings ?? [],
+    mappings,
   })
 }
 
@@ -144,20 +140,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nome do mapeamento é obrigatório.' }, { status: 400 })
   }
 
-  const supabase = createServerClient()
-  const slug = await generateUniqueMappingSlug(supabase, name)
+  const slug = await generateUniqueMappingSlug(name)
 
-  const { data: links, error: linkError } = await supabase
-    .from('tenant_managers')
-    .select('tenant_id, role')
-    .eq('manager_id', manager.id)
-    .order('created_at', { ascending: true })
-
-  if (linkError) {
+  let links
+  try {
+    links = await db
+      .selectFrom('tenant_managers')
+      .select(['tenant_id', 'role'])
+      .where('manager_id', '=', manager.id)
+      .orderBy('created_at', 'asc')
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Falha ao validar acesso do owner.' }, { status: 500 })
   }
 
-  const firstLink = (links ?? [])[0]
+  const firstLink = links[0]
   if (!firstLink?.tenant_id) {
     return NextResponse.json({ error: 'Nenhum tenant vinculado ao usuário.' }, { status: 403 })
   }
@@ -166,37 +163,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sem permissão para criar mapeamentos.' }, { status: 403 })
   }
 
-  const { data: mapping, error: mappingError } = await supabase
-    .from('mappings')
-    .insert({
-      tenant_id: firstLink.tenant_id,
-      name,
-      slug,
-      description: null,
-      status,
-      module_type: moduleType,
-      is_demo: false,
-      tcle_text: tcleText,
-      csv_columns: csvColumns,
-      config,
-    })
-    .select('id, name, slug')
-    .single()
+  let mapping
+  try {
+    mapping = await db
+      .insertInto('mappings')
+      .values({
+        tenant_id: firstLink.tenant_id,
+        name,
+        slug,
+        description: null,
+        status,
+        module_type: moduleType,
+        is_demo: false,
+        tcle_text: tcleText,
+        // csvColumns é um array no topo — o driver `pg` serializa array
+        // top-level como literal de array do Postgres (`{"a","b"}`), não como
+        // JSON (`["a","b"]"`), e a coluna é jsonb: dá "invalid input syntax
+        // for type json" na escrita. JSON.stringify explícito evita a
+        // serialização automática errada; `config` é objeto no topo, então
+        // não sofre disso, mas ainda exige o cast — Kysely exige o formato
+        // Json exato da coluna jsonb, e buildMappingConfig devolve tipos frouxos.
+        csv_columns: JSON.stringify(csvColumns),
+        config: config as unknown as DB['mappings']['config'],
+      })
+      .returning(['id', 'name', 'slug'])
+      .executeTakeFirst()
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('Falha ao inserir mapping:', err)
+    mapping = undefined
+  }
 
-  if (mappingError || !mapping) {
+  if (!mapping) {
     return NextResponse.json({ error: 'Falha ao criar mapeamento.' }, { status: 500 })
   }
 
-  await supabase
-    .from('mapping_managers')
-    .upsert(
-      {
-        mapping_id: mapping.id,
-        manager_id: manager.id,
-        role: 'owner',
-      },
-      { onConflict: 'mapping_id,manager_id', ignoreDuplicates: false },
-    )
+  try {
+    await db
+      .insertInto('mapping_managers')
+      .values({ mapping_id: mapping.id, manager_id: manager.id, role: 'owner' })
+      .onConflict((oc) => oc.columns(['mapping_id', 'manager_id']).doUpdateSet({ role: 'owner' }))
+      .execute()
+  } catch {
+    // Mesma tolerância do código original: falha aqui não invalida a criação do mapeamento.
+  }
 
   const createdCredentials: Array<{ email: string; temporary_password: string }> = []
   const failedManagers: Array<{ email: string; error: string }> = []
@@ -208,11 +218,11 @@ export async function POST(request: NextRequest) {
 
     if (!managerEmail || !managerName) continue
 
-    const { data: existingManager } = await supabase
-      .from('managers')
+    const existingManager = await db
+      .selectFrom('managers')
       .select('id')
-      .eq('email', managerEmail)
-      .single()
+      .where('email', '=', managerEmail)
+      .executeTakeFirst()
 
     let targetManagerId = existingManager?.id ?? null
     let newTempPassword: string | null = null
@@ -222,20 +232,25 @@ export async function POST(request: NextRequest) {
       const bcryptHash = await hash(tempPassword, 12)
       const wrappedHash = wrapTemporaryHash(bcryptHash)
 
-      const { data: insertedManager, error: insertManagerError } = await supabase
-        .from('managers')
-        .insert({
-          name: managerName,
-          email: managerEmail,
-          role: 'manager',
-          is_active: true,
-          password_hash: wrappedHash,
-          temp_password_plain: tempPassword,
-        })
-        .select('id')
-        .single()
+      let insertedManager
+      try {
+        insertedManager = await db
+          .insertInto('managers')
+          .values({
+            name: managerName,
+            email: managerEmail,
+            role: 'manager',
+            is_active: true,
+            password_hash: wrappedHash,
+            temp_password_plain: tempPassword,
+          })
+          .returning('id')
+          .executeTakeFirst()
+      } catch {
+        insertedManager = undefined
+      }
 
-      if (insertManagerError || !insertedManager) {
+      if (!insertedManager) {
         failedManagers.push({ email: managerEmail, error: 'Falha ao criar gestor.' })
         continue
       }
@@ -244,34 +259,24 @@ export async function POST(request: NextRequest) {
       newTempPassword = tempPassword
     }
 
-    const { error: tenantLinkError } = await supabase
-      .from('tenant_managers')
-      .upsert(
-        {
-          tenant_id: firstLink.tenant_id,
-          manager_id: targetManagerId,
-          role: managerRole,
-        },
-        { onConflict: 'tenant_id,manager_id', ignoreDuplicates: false },
-      )
-
-    if (tenantLinkError) {
+    try {
+      await db
+        .insertInto('tenant_managers')
+        .values({ tenant_id: firstLink.tenant_id, manager_id: targetManagerId, role: managerRole })
+        .onConflict((oc) => oc.columns(['tenant_id', 'manager_id']).doUpdateSet({ role: managerRole }))
+        .execute()
+    } catch {
       failedManagers.push({ email: managerEmail, error: 'Falha ao vincular gestor ao tenant.' })
       continue
     }
 
-    const { error: mappingLinkError } = await supabase
-      .from('mapping_managers')
-      .upsert(
-        {
-          mapping_id: mapping.id,
-          manager_id: targetManagerId,
-          role: managerRole,
-        },
-        { onConflict: 'mapping_id,manager_id', ignoreDuplicates: false },
-      )
-
-    if (mappingLinkError) {
+    try {
+      await db
+        .insertInto('mapping_managers')
+        .values({ mapping_id: mapping.id, manager_id: targetManagerId, role: managerRole })
+        .onConflict((oc) => oc.columns(['mapping_id', 'manager_id']).doUpdateSet({ role: managerRole }))
+        .execute()
+    } catch {
       failedManagers.push({ email: managerEmail, error: 'Falha ao vincular gestor ao mapeamento.' })
       continue
     }

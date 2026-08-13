@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
 import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
@@ -83,26 +83,27 @@ function splitDisabilityValues(raw: string): string[] {
     .filter(Boolean)
 }
 
-async function getDisabilityTypes(
-  supabase: ReturnType<typeof createServerClient>,
-  collaboratorIds: string[],
-): Promise<DistItem[]> {
+async function getDisabilityTypes(collaboratorIds: string[]): Promise<DistItem[]> {
   const map: Record<string, number> = {}
 
-  const which = await supabase
-    .from('collaborators')
-    .select('which_disability')
-    .in('id', collaboratorIds)
+  let which
+  try {
+    which = await db
+      .selectFrom('collaborators')
+      .select('which_disability')
+      .where('id', 'in', collaboratorIds)
+      .execute()
+  } catch {
+    return []
+  }
 
-  if (which.error) return []
-
-  for (const row of which.data ?? []) {
-    const value = (row as Record<string, unknown>).which_disability
+  for (const row of which) {
+    const value = row.which_disability
     if (typeof value !== 'string' || !value.trim()) continue
     for (const item of splitDisabilityValues(value)) {
       map[item] = (map[item] ?? 0) + 1
     }
-    }
+  }
 
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))
@@ -110,40 +111,48 @@ async function getDisabilityTypes(
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const mappingScope = await requireMappingAccess(request, supabase)
+  const mappingScope = await requireMappingAccess(request)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const { data: mapping } = await supabase
-    .from('mappings')
+  const mapping = await db
+    .selectFrom('mappings')
     .select('config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
   const mappingConfig = normalizeMappingConfig(mapping?.config)
   const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
-  let collabQuery = supabase
-    .from('collaborators')
+  let collabQuery = db
+    .selectFrom('collaborators')
     .select('id')
-    .eq('mapping_id', mappingScope.mappingId)
+    .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
-  const { data: collabs, error: collabErr } = await collabQuery
-  if (collabErr) return NextResponse.json({ error: collabErr.message }, { status: 500 })
 
-  const collaboratorIds = (collabs ?? []).map((c) => c.id)
+  let collabs
+  try {
+    collabs = await collabQuery.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
+
+  const collaboratorIds = collabs.map((c) => c.id)
   if (collaboratorIds.length === 0) {
     return NextResponse.json({ domains: [], class_distribution: [], avg_score: null, disability_types: [], question_risk: [] })
   }
 
-  const { data: responses, error } = await supabase
-    .from('responses')
-    .select('hse_domains, hse_class, hse_score, answers')
-    .in('collaborator_id', collaboratorIds)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  let responses
+  try {
+    responses = await db
+      .selectFrom('responses')
+      .select(['hse_domains', 'hse_class', 'hse_score', 'answers'])
+      .where('collaborator_id', 'in', collaboratorIds)
+      .execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
+  }
 
   // Aggregate domain scores
   const domainAgg: Record<string, { sum: number; count: number; weight: number }> = {}
@@ -155,7 +164,7 @@ export async function GET(request: NextRequest) {
     if (r.hse_class) classMap[r.hse_class] = (classMap[r.hse_class] ?? 0) + 1
     if ((r as { hse_score?: number | null }).hse_score != null) { scoreSum += (r as { hse_score: number }).hse_score; scoreCount++ }
     if (!Array.isArray(r.hse_domains)) continue
-    for (const d of r.hse_domains as HseDomainEntry[]) {
+    for (const d of r.hse_domains as unknown as HseDomainEntry[]) {
       if (!domainAgg[d.domain]) domainAgg[d.domain] = { sum: 0, count: 0, weight: d.weight }
       domainAgg[d.domain].sum += d.score
       domainAgg[d.domain].count++
@@ -179,7 +188,7 @@ export async function GET(request: NextRequest) {
 
   const class_distribution = Object.entries(classMap).map(([name, value]) => ({ name, value }))
   const avg_score = scoreCount > 0 ? Math.round((scoreSum / scoreCount) * 100) / 100 : null
-  const disability_types = await getDisabilityTypes(supabase, collaboratorIds)
+  const disability_types = await getDisabilityTypes(collaboratorIds)
   const question_risk = HSE_QUESTIONS
     .map((q) => {
       const agg = questionAgg[q.code]
@@ -188,7 +197,7 @@ export async function GET(request: NextRequest) {
       return {
         domain: q.domain,
         question_code: q.code,
-        question_text: q.text,
+        question_text: mappingConfig.hse_question_text_overrides[q.code] ?? q.text,
         avg_score: avg,
         classification: classifyRisk(avg),
         responses: agg.count,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import * as XLSX from 'xlsx'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 
@@ -42,8 +42,7 @@ function buildAdhesionTable(
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const mappingScope = await requireMappingAccess(request, supabase)
+  const mappingScope = await requireMappingAccess(request)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
@@ -56,38 +55,41 @@ export async function GET(request: NextRequest) {
   const employmentType = request.nextUrl.searchParams.get('employment_type') ?? ''
   const hasFilters = !!(area || role || gender || raceColor || employmentType)
 
-  let query = supabase
-    .from('collaborators')
-    .select('id, area, role, employment_type, gender, race_color, has_answered')
-    .eq('mapping_id', mappingScope.mappingId)
+  let query = db
+    .selectFrom('collaborators')
+    .select(['id', 'area', 'role', 'employment_type', 'gender', 'race_color', 'has_answered'])
+    .where('mapping_id', '=', mappingScope.mappingId)
 
-  if (area) query = query.eq('area', area)
-  if (role) query = query.eq('role', role)
-  if (gender) query = query.eq('gender', gender)
-  if (raceColor) query = query.eq('race_color', raceColor)
-  if (employmentType) query = query.eq('employment_type', employmentType)
+  if (area) query = query.where('area', '=', area)
+  if (role) query = query.where('role', '=', role)
+  if (gender) query = query.where('gender', '=', gender)
+  if (raceColor) query = query.where('race_color', '=', raceColor)
+  if (employmentType) query = query.where('employment_type', '=', employmentType)
 
-  const { data, error } = await query
+  let collabs: CollabRow[]
+  try {
+    collabs = await query.execute()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
+  }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const collabs: CollabRow[] = data ?? []
   const total = collabs.length
   const answered = collabs.filter((c) => c.has_answered).length
   const pct = total > 0 ? Math.round((answered / total) * 10000) / 100 : 0
 
   const collaboratorIds = collabs.map((c) => c.id)
 
-  const { data: responses } = collaboratorIds.length > 0
-    ? await supabase
-        .from('responses')
+  const responses = collaboratorIds.length > 0
+    ? await db
+        .selectFrom('responses')
         .select('submitted_at')
-        .in('collaborator_id', collaboratorIds)
-        .order('submitted_at', { ascending: true })
-    : { data: [] }
+        .where('collaborator_id', 'in', collaboratorIds)
+        .orderBy('submitted_at', 'asc')
+        .execute()
+    : []
 
   const byDayMap: Record<string, number> = {}
-  for (const r of responses ?? []) {
+  for (const r of responses) {
     if (r.submitted_at) {
       const day = (r.submitted_at as string).slice(0, 10)
       byDayMap[day] = (byDayMap[day] ?? 0) + 1

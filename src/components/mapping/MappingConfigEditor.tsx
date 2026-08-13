@@ -22,8 +22,12 @@ export type ColumnProfileDraft = {
   display_name: string
   is_dashboard_filter: boolean
   is_demographic: boolean
+  /** Dado identificável (nome, CPF/matrícula, e-mail, credencial) — trava filtro e demográfico. */
   locked: boolean
   locked_reason: string | null
+  /** Sociodemográfico reconhecido (gênero, data de nascimento, etc.) — trava só o demográfico; filtro fica livre. */
+  demographic_locked: boolean
+  demographic_locked_reason: string | null
 }
 
 export type MappingConfigDraft = {
@@ -337,7 +341,9 @@ export function MappingConfigEditor({
         <h3 className="text-base font-semibold">Colunas da base</h3>
         <p className="mt-1 text-xs" style={{ color: T.textFaint }}>
           Defina o nome exibido e onde cada coluna aparece. Colunas bloqueadas guardam dados
-          identificáveis e não podem virar filtro ou gráfico.
+          identificáveis e não podem virar filtro ou gráfico. Colunas sociodemográficas
+          reconhecidas automaticamente (gênero, data de nascimento etc.) sempre aparecem como
+          gráfico, mas também podem virar filtro do dashboard.
         </p>
 
         {draft.column_profiles.length > 0 ? (
@@ -358,10 +364,20 @@ export function MappingConfigEditor({
                       Bloqueado
                     </span>
                   )}
+                  {!card.locked && card.demographic_locked && (
+                    <span
+                      className="rounded-full px-2 py-1 text-[11px]"
+                      style={{ color: T.textMuted, backgroundColor: T.surface }}
+                    >
+                      Campo padrão
+                    </span>
+                  )}
                 </div>
 
-                {card.locked_reason && (
-                  <p className="mt-1 text-xs" style={{ color: T.textFaint }}>{card.locked_reason}</p>
+                {(card.locked_reason || card.demographic_locked_reason) && (
+                  <p className="mt-1 text-xs" style={{ color: T.textFaint }}>
+                    {card.locked_reason ?? card.demographic_locked_reason}
+                  </p>
                 )}
 
                 <label htmlFor={`edit-display-${card.source_name}`} className="mt-3 block text-xs" style={{ color: T.textMuted }}>
@@ -390,7 +406,7 @@ export function MappingConfigEditor({
                     <input
                       type="checkbox"
                       checked={card.is_demographic}
-                      disabled={card.locked || disabled}
+                      disabled={card.locked || card.demographic_locked || disabled}
                       onChange={(e) => updateColumn(card.source_name, { is_demographic: e.target.checked })}
                     />
                     <span>Dado demográfico</span>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { cookies } from 'next/headers'
 import { checkRateLimit, getClientIp } from '@/lib/security/rate-limit'
 import { hashCpf } from '@/lib/security/crypto'
@@ -65,19 +65,17 @@ export async function POST(request: NextRequest) {
       : null
   const tcleAccepted = payload.tcle_accepted === true
 
-  const supabase = createServerClient()
-
   let mappingId: string | null = null
   let mappingCredentialColumn: string | null = null
 
   if (mappingSlug) {
-    const { data: mapping, error: mappingError } = await supabase
-      .from('mappings')
-      .select('id, status, config, tcle_text')
-      .eq('slug', mappingSlug)
-      .single()
+    const mapping = await db
+      .selectFrom('mappings')
+      .select(['id', 'status', 'config', 'tcle_text'])
+      .where('slug', '=', mappingSlug)
+      .executeTakeFirst()
 
-    if (mappingError || !mapping || mapping.status !== 'active') {
+    if (!mapping || mapping.status !== 'active') {
       return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 404 })
     }
 
@@ -105,25 +103,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'CPF inválido.' }, { status: 400 })
   }
 
-  type CollaboratorRow = { id: string; has_answered: boolean }
-
-  let collaboratorQuery = supabase
-    .from('collaborators')
-    .select('id, has_answered')
-    .eq('cpf', hashCpf(normalizedCredential))
+  let collaboratorQuery = db
+    .selectFrom('collaborators')
+    .select(['id', 'has_answered'])
+    .where('cpf', '=', hashCpf(normalizedCredential))
 
   if (mappingId) {
-    collaboratorQuery = collaboratorQuery.eq('mapping_id', mappingId)
+    collaboratorQuery = collaboratorQuery.where('mapping_id', '=', mappingId)
   }
 
-  const result = await collaboratorQuery.single()
+  const collaborator = await collaboratorQuery.executeTakeFirst()
 
-  const error = result.error
-  const collaborator = result.data as CollaboratorRow | null
-
-  if (error || !collaborator) {
+  if (!collaborator) {
     // Resposta genérica para não vazar informações sobre CPFs cadastrados
-    return NextResponse.json({ error: 'Credencial não encontrada. Verifique se você está cadastrado na pesquisa.' }, { status: 401 })
+    return NextResponse.json({ error: 'Credencial não reconhecida. Confira os dados informados e tente novamente.' }, { status: 401 })
   }
 
   if (collaborator.has_answered) {

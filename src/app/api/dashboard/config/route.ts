@@ -1,22 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const mappingScope = await requireMappingAccess(request, supabase)
+  const mappingScope = await requireMappingAccess(request)
   if ('error' in mappingScope) {
     return NextResponse.json({ error: mappingScope.error }, { status: mappingScope.status })
   }
 
-  const { data: mapping, error } = await supabase
-    .from('mappings')
-    .select('id, name, slug, status, tcle_text, config')
-    .eq('id', mappingScope.mappingId)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['id', 'name', 'slug', 'status', 'tcle_text', 'config'])
+    .where('id', '=', mappingScope.mappingId)
+    .executeTakeFirst()
 
-  if (error || !mapping || mapping.status !== 'active') {
+  if (!mapping || mapping.status !== 'active') {
     return NextResponse.json({ error: 'Mapeamento não encontrado ou inativo.' }, { status: 404 })
   }
 

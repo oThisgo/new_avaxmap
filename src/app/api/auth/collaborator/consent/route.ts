@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 
 export async function POST(request: NextRequest) {
   const collaboratorId = request.cookies.get('collaborator_id')?.value
@@ -30,23 +30,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Mapeamento inválido para esta sessão.' }, { status: 403 })
   }
 
-  const supabase = createServerClient()
-
-  const { data: mapping } = await supabase
-    .from('mappings')
-    .select('id, status')
-    .eq('slug', mappingSlug)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['id', 'status'])
+    .where('slug', '=', mappingSlug)
+    .executeTakeFirst()
 
   if (!mapping || mapping.status !== 'active') {
     return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 404 })
   }
 
-  const { data: collaborator } = await supabase
-    .from('collaborators')
-    .select('id, mapping_id, has_answered')
-    .eq('id', collaboratorId)
-    .single()
+  const collaborator = await db
+    .selectFrom('collaborators')
+    .select(['id', 'mapping_id', 'has_answered'])
+    .where('id', '=', collaboratorId)
+    .executeTakeFirst()
 
   if (!collaborator || collaborator.mapping_id !== mapping.id) {
     return NextResponse.json({ error: 'Colaborador não pertence ao mapeamento ativo.' }, { status: 403 })

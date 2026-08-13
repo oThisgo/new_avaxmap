@@ -144,10 +144,10 @@ export default function MappingCollaboratorLoginPage() {
         >
           <Card className="p-8">
             <h1 className="mb-1 text-2xl font-semibold" style={{ color: T.text }}>
-              Acesso do Colaborador
+              Acesse a plataforma AVAX
             </h1>
             <p className="mb-8 text-sm" style={{ color: T.textMuted }}>
-              Insira a credencial definida para este mapeamento para acessar a pesquisa.
+              Insira sua credencial para continuar
             </p>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -163,7 +163,7 @@ export default function MappingCollaboratorLoginPage() {
                   spellCheck={false}
                   value={credential}
                   onChange={(e) => setCredential(e.target.value)}
-                  placeholder="CPF, matrícula, e-mail..."
+                  placeholder="Credencial de acesso"
                   disabled={loading}
                 />
               </div>
@@ -171,7 +171,7 @@ export default function MappingCollaboratorLoginPage() {
               <AlertPresence show={!!error}>{error}</AlertPresence>
 
               <Button type="submit" size="lg" loading={loading} disabled={!canSubmit} className="mt-2 w-full">
-                {loading ? 'Verificando...' : 'Acessar pesquisa'}
+                {loading ? 'Verificando...' : 'Continuar'}
               </Button>
 
               {tcleLoadError && (

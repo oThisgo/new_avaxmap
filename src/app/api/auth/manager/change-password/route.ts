@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { compare, hash } from 'bcryptjs'
 import { getManagerFromSession } from '@/lib/auth/manager'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { unwrapHash } from '@/lib/auth/password'
 
 export async function POST(request: NextRequest) {
@@ -35,14 +35,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'A confirmação de senha não confere.' }, { status: 400 })
   }
 
-  const supabase = createServerClient()
-  const { data: row, error } = await supabase
-    .from('managers')
-    .select('id, password_hash, name, email, role')
-    .eq('id', manager.id)
-    .single()
+  const row = await db
+    .selectFrom('managers')
+    .select(['id', 'password_hash', 'name', 'email', 'role'])
+    .where('id', '=', manager.id)
+    .executeTakeFirst()
 
-  if (error || !row) {
+  if (!row) {
     return NextResponse.json({ error: 'Gestor não encontrado.' }, { status: 404 })
   }
 
@@ -54,12 +53,13 @@ export async function POST(request: NextRequest) {
   }
 
   const newHash = await hash(newPassword, 12)
-  const { error: updateError } = await supabase
-    .from('managers')
-    .update({ password_hash: newHash, temp_password_plain: null })
-    .eq('id', manager.id)
-
-  if (updateError) {
+  try {
+    await db
+      .updateTable('managers')
+      .set({ password_hash: newHash, temp_password_plain: null })
+      .where('id', '=', manager.id)
+      .execute()
+  } catch {
     return NextResponse.json({ error: 'Erro ao atualizar senha.' }, { status: 500 })
   }
 

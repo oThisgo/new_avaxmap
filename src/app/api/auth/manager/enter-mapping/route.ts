@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { db } from '@/lib/db/pool'
 import { getManagerFromSession } from '@/lib/auth/manager'
 
 // POST /api/auth/manager/enter-mapping
@@ -39,25 +39,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Slug do mapeamento é obrigatório.' }, { status: 400 })
   }
 
-  const supabase = createServerClient()
-  const { data: mapping, error: mappingError } = await supabase
-    .from('mappings')
-    .select('id, slug, status')
-    .eq('slug', mappingSlug)
-    .single()
+  const mapping = await db
+    .selectFrom('mappings')
+    .select(['id', 'slug', 'status'])
+    .where('slug', '=', mappingSlug)
+    .executeTakeFirst()
 
-  if (mappingError || !mapping || mapping.status !== 'active') {
+  if (!mapping || mapping.status !== 'active') {
     return NextResponse.json({ error: 'Mapeamento inválido ou inativo.' }, { status: 404 })
   }
 
-  const { data: access, error: accessError } = await supabase
-    .from('mapping_managers')
+  const access = await db
+    .selectFrom('mapping_managers')
     .select('role')
-    .eq('mapping_id', mapping.id)
-    .eq('manager_id', manager.id)
-    .single()
+    .where('mapping_id', '=', mapping.id)
+    .where('manager_id', '=', manager.id)
+    .executeTakeFirst()
 
-  if (accessError || !access) {
+  if (!access) {
     return NextResponse.json({ error: 'Sem acesso a este mapeamento.' }, { status: 403 })
   }
 

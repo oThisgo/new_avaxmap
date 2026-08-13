@@ -8,7 +8,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Sua experiência no trabalho importa | BeeTouch",
+  title: "AvaxMap",
   description:
     "Plataforma de mapeamento de riscos psicossociais da BeeTouch.",
 };
