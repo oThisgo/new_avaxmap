@@ -14,6 +14,11 @@ import { Textarea } from '@/components/ui/input'
 import { HSE_QUESTIONS, HSE_SCALE_OPTIONS, HSE_CODES, type HseQuestionDefinition } from '@/lib/analytics/hse-definition'
 import { IETR_QUESTIONS, IETR_SCALE_OPTIONS, IETR_CODES, type IetrQuestionDefinition } from '@/lib/analytics/ietr-definition'
 import {
+  FREQUENCY_SCALE_DESCRIPTIONS,
+  FREQUENCY_SCALE_INSTRUCTIONS,
+  FREQUENCY_SCALE_TITLE,
+} from '@/lib/analytics/frequency-scale'
+import {
   MENTAL_HEALTH_CODES,
   MENTAL_HEALTH_QUESTIONS,
   type MentalHealthQuestion,
@@ -29,6 +34,8 @@ import {
   type MentalHealthNoneState,
 } from '@/components/forms/MentalHealthModule'
 import type { MappingModuleKey } from '@/lib/mapping/config'
+import { normalizeLogoUrl } from '@/lib/mapping/logo'
+import { MappingLogo } from '@/components/mapping/MappingLogo'
 import { applyQuestionOverrides } from '@/lib/mapping/question-overrides'
 import { SOCIODEMOGRAPHIC_QUESTION_KEYS, getEffectiveSociodemographicQuestions } from '@/lib/mapping/sociodemographic-questions'
 
@@ -112,7 +119,13 @@ const EDUCATION_OPTIONS: readonly DropdownOption[] = [
 const DISABILITY_OPTIONS: readonly DropdownOption[] = [
   { value: 'Sim', label: 'Sim' },
   { value: 'Não', label: 'Não' },
+  { value: 'Prefiro não informar', label: 'Prefiro não informar' },
 ]
+
+/** "Qual deficiência?" só existe para quem declarou ter deficiência. */
+function declaredDisability(value: string): boolean {
+  return /^sim/i.test(value.trim())
+}
 
 const REMOTE_OPTIONS: readonly DropdownOption[] = [
   { value: 'Sim', label: 'Sim' },
@@ -126,6 +139,34 @@ const REMOTE_OPTIONS: readonly DropdownOption[] = [
  */
 function RequiredMark() {
   return <span style={{ color: BRAND_COLORS.primary }}> *</span>
+}
+
+/**
+ * Contextualização do instrumento: janela de referência das respostas e o que
+ * cada ponto da escala significa. Abre os módulos que usam a escala de
+ * frequência de 5 pontos.
+ */
+function FrequencyScaleIntro({ theme }: Readonly<{ theme: FormThemeTokens }>) {
+  return (
+    <div
+      className="rounded-xl px-4 py-4 sm:px-5"
+      style={{ border: `1px solid ${theme.border}`, backgroundColor: theme.inputBg }}
+    >
+      <p className="text-sm font-semibold leading-relaxed sm:text-base" style={{ color: theme.text }}>
+        {FREQUENCY_SCALE_INSTRUCTIONS}
+      </p>
+
+      <p className="mt-4 text-sm font-semibold" style={{ color: theme.text }}>{FREQUENCY_SCALE_TITLE}</p>
+      <dl className="mt-1.5 space-y-1">
+        {FREQUENCY_SCALE_DESCRIPTIONS.map((item) => (
+          <div key={item.option} className="text-sm leading-relaxed">
+            <dt className="inline font-semibold" style={{ color: theme.text }}>{item.option}</dt>
+            <dd className="inline" style={{ color: theme.textMuted }}> — {item.description}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
 }
 
 function ScaleOptionsGrid({
@@ -290,6 +331,7 @@ type MappingRuntimeConfig = {
   column_mapping: Record<string, string>
   sociodemographic_questions: string[]
   tcle_text: string | null
+  logo_url: string | null
   hse_question_order: string[]
   hse_question_text_overrides: Record<string, string>
   ietr_question_order: string[]
@@ -335,6 +377,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     column_mapping: {},
     sociodemographic_questions: [...SOCIODEMOGRAPHIC_QUESTION_KEYS],
     tcle_text: null,
+    logo_url: null,
     hse_question_order: HSE_CODES,
     hse_question_text_overrides: {},
     ietr_question_order: IETR_CODES,
@@ -448,6 +491,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
           tcle_text: typeof json.mapping?.tcle_text === 'string' && json.mapping.tcle_text.trim().length > 0
             ? json.mapping.tcle_text
             : null,
+          logo_url: normalizeLogoUrl(json.mapping?.logo_url),
           hse_question_order: Array.isArray(json.config.hse_question_order) && json.config.hse_question_order.length > 0
             ? json.config.hse_question_order
             : HSE_CODES,
@@ -480,7 +524,10 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     setSocio((prev) => ({
       ...prev,
       [field]: value,
-      ...(field === 'disability' && /^n[aã]o/i.test(value) ? { which_disability: '' } : {}),
+      // "Qual deficiência?" só é exibido para quem responde "Sim"; qualquer
+      // outra resposta (inclusive "Prefiro não informar") limpa o campo, para
+      // não submeter resíduo de um valor digitado antes.
+      ...(field === 'disability' && !declaredDisability(value) ? { which_disability: '' } : {}),
     }))
   }
 
@@ -532,7 +579,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
       }
     }
 
-    if (/^sim/i.test(socio.disability.trim()) && !socio.which_disability.trim()) {
+    if (declaredDisability(socio.disability) && !socio.which_disability.trim()) {
       setOpenModules((prev) => ({ ...prev, socio: true }))
       reportError('Informe qual deficiência para continuar.')
       return
@@ -627,7 +674,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   }
 
   function renderSocioFields() {
-    const disabilityAnsweredYes = /^sim/i.test(socio.disability.trim())
+    const disabilityAnsweredYes = declaredDisability(socio.disability)
 
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -714,27 +761,26 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
               />
             </label>
 
-            <label className="text-sm sm:col-span-2">
-              <span className="mb-1.5 block" style={{ color: T.textMuted }}>
-                Qual deficiência?
-                {disabilityAnsweredYes
-                  ? <RequiredMark />
-                  : <span style={{ color: T.textFaint }}> (opcional)</span>}
-              </span>
-              <input
-                type="text"
-                value={socio.which_disability}
-                onChange={(e) => setSocioField('which_disability', e.target.value)}
-                disabled={isSubmitting || /^n[aã]o/i.test(socio.disability.trim())}
-                placeholder="Ex.: visual, auditiva, física, intelectual"
-                className="w-full rounded-lg px-3 py-2 outline-none disabled:opacity-60 transition-all"
-                style={fieldStyle}
-                onMouseEnter={handleFieldMouseEnter}
-                onMouseLeave={handleFieldMouseLeave}
-                onFocus={handleFieldFocus}
-                onBlur={handleFieldBlur}
-              />
-            </label>
+            {disabilityAnsweredYes && (
+              <label className="text-sm sm:col-span-2">
+                <span className="mb-1.5 block" style={{ color: T.textMuted }}>
+                  Qual deficiência?<RequiredMark />
+                </span>
+                <input
+                  type="text"
+                  value={socio.which_disability}
+                  onChange={(e) => setSocioField('which_disability', e.target.value)}
+                  disabled={isSubmitting}
+                  placeholder="Ex.: visual, auditiva, física, intelectual"
+                  className="w-full rounded-lg px-3 py-2 outline-none disabled:opacity-60 transition-all"
+                  style={fieldStyle}
+                  onMouseEnter={handleFieldMouseEnter}
+                  onMouseLeave={handleFieldMouseLeave}
+                  onFocus={handleFieldFocus}
+                  onBlur={handleFieldBlur}
+                />
+              </label>
+            )}
           </>
         )}
 
@@ -784,6 +830,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   function renderHseQuestions() {
     return (
       <div className="space-y-6">
+        <FrequencyScaleIntro theme={T} />
         {hseQuestions.map((question) =>
           renderQuestionCard(question.code, question.text, HSE_SCALE_OPTIONS, hseAnswers[question.code], setHseAnswer),
         )}
@@ -808,6 +855,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     return (
       <>
         <div className="space-y-6">
+          <FrequencyScaleIntro theme={T} />
           {ietrQuestions.map((question, index) =>
             renderQuestionCard(
               String(index + 1).padStart(2, '0'),
@@ -852,7 +900,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   if (hasHseModule) {
     moduleSections.push({
       id: 'hse',
-      title: 'Módulo HSE',
+      title: 'Condições psicossociais no trabalho',
       subtitle: 'Questões sobre o ambiente de trabalho em geral',
       content: renderHseQuestions(),
     })
@@ -868,7 +916,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   if (hasMentalHealthModule) {
     moduleSections.push({
       id: 'saude_mental',
-      title: 'Módulo Saúde Mental',
+      title: 'Saúde e bem-estar',
       subtitle: 'Comportamento e emoção, fatores ambientais e percepção sobre saúde e qualidade de vida',
       content: renderMentalHealthFields(),
     })
@@ -910,10 +958,11 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
         </div>
 
         <header className="mb-8 flex flex-col gap-5">
-          <div className="flex items-center justify-center sm:justify-start">
+          <div className="flex flex-wrap items-center justify-center gap-4 sm:justify-start">
             <div className="h-24 w-24 overflow-hidden rounded-full p-4 shadow-sm" style={{ backgroundColor: BRAND_COLORS.primary }}>
               <Image src={BRAND_ASSETS.symbol} alt={BRAND_NAME} width={96} height={96} className="h-full w-full object-contain" style={{ height: '100%' }} />
             </div>
+            <MappingLogo src={mappingConfig.logo_url} variant="header" />
           </div>
 
           <div className="space-y-2">

@@ -7,6 +7,7 @@ import { generateTemporaryPassword, wrapTemporaryHash } from '@/lib/auth/passwor
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'crypto'
 import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
+import { normalizeLogoUrl } from '@/lib/mapping/logo'
 import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
 
 const VALID_MANAGER_ROLES = new Set(MANAGER_ROLE_OPTIONS.map((opt) => opt.value))
@@ -15,6 +16,7 @@ type MappingPayload = MappingConfigPayload & {
   name?: string
   status?: 'draft' | 'active' | 'archived'
   tcle_text?: string
+  logo_url?: string | null
   managers?: Array<{
     name?: string
     email?: string
@@ -176,6 +178,7 @@ export async function POST(request: NextRequest) {
         module_type: moduleType,
         is_demo: false,
         tcle_text: tcleText,
+        logo_url: normalizeLogoUrl(payload.logo_url),
         // csvColumns é um array no topo — o driver `pg` serializa array
         // top-level como literal de array do Postgres (`{"a","b"}`), não como
         // JSON (`["a","b"]"`), e a coluna é jsonb: dá "invalid input syntax

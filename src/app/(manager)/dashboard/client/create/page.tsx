@@ -16,6 +16,7 @@ import { HSE_CODES } from '@/lib/analytics/hse-definition'
 import { IETR_CODES } from '@/lib/analytics/ietr-definition'
 import { MENTAL_HEALTH_CODES } from '@/lib/analytics/mental-health-definition'
 import { QuestionOrderEditor } from '@/components/mapping/QuestionOrderEditor'
+import { LogoUploadField } from '@/components/mapping/LogoUploadField'
 import { MODULE_DEFS, QUESTION_EDITABLE_MODULES, SociodemographicQuestionsPicker } from '@/components/mapping/MappingConfigEditor'
 import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
 import { SOCIODEMOGRAPHIC_QUESTION_KEYS } from '@/lib/mapping/sociodemographic-questions'
@@ -122,6 +123,7 @@ export default function CreateMappingPage() {
 
   const [name, setName] = useState('')
   const [status, setStatus] = useState<MappingStatus>('draft')
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [tcleText, setTcleText] = useState('')
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [inferLoading, setInferLoading] = useState(false)
@@ -315,6 +317,7 @@ export default function CreateMappingPage() {
           modules: selectedModules,
           csv_columns: csvColumns,
           tcle_text: isRichTextEmpty(sanitizedTcle) ? '' : sanitizedTcle,
+          logo_url: logoUrl,
           dashboard_filters: dashboardFilterColumns,
           stratification_columns: dashboardFilterColumns,
           demographic_columns: demographicColumns,
@@ -402,6 +405,11 @@ export default function CreateMappingPage() {
                   options={STATUS_OPTIONS}
                 />
               </label>
+            </div>
+
+            <div className="mt-5 border-t pt-4" style={{ borderColor: T.border }}>
+              <h3 className="text-sm font-semibold">Logo da empresa</h3>
+              <LogoUploadField value={logoUrl} onChange={setLogoUrl} disabled={loading} />
             </div>
           </section>
 

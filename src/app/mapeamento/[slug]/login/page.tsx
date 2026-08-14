@@ -8,6 +8,8 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS } from '@/lib/brand'
 import { useThemeTokens } from '@/lib/theme'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
+import { normalizeLogoUrl } from '@/lib/mapping/logo'
+import { MappingLogo } from '@/components/mapping/MappingLogo'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -35,6 +37,7 @@ export default function MappingCollaboratorLoginPage() {
   const [tcleGateOpen, setTcleGateOpen] = useState(true)
   const [tcleLoading, setTcleLoading] = useState(true)
   const [tcleLoadError, setTcleLoadError] = useState('')
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
 
   const tcleHtml = useMemo(() => sanitizeRichTextHtml(tcleText ?? ''), [tcleText])
   const tcleRequired = !isRichTextEmpty(tcleHtml)
@@ -51,6 +54,7 @@ export default function MappingCollaboratorLoginPage() {
       })
       .then((data) => {
         if (!active) return
+        setLogoUrl(normalizeLogoUrl(data?.mapping?.logo_url))
         const text = typeof data?.mapping?.tcle_text === 'string' ? data.mapping.tcle_text : ''
         const sanitized = sanitizeRichTextHtml(text)
         setTcleText(sanitized)
@@ -180,6 +184,8 @@ export default function MappingCollaboratorLoginPage() {
                 </p>
               )}
             </form>
+
+            <MappingLogo src={logoUrl} />
           </Card>
         </motion.div>
       </div>

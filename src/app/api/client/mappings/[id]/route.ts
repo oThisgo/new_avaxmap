@@ -6,6 +6,7 @@ import type { DB } from '@/types/kysely-db'
 import { getManagerFromSession } from '@/lib/auth/manager'
 import { generateTemporaryPassword, wrapTemporaryHash, TEMP_PASSWORD_PREFIX } from '@/lib/auth/password'
 import { buildMappingConfig, type MappingConfigPayload } from '@/lib/mapping/config-payload'
+import { LOGO_REJECTED_MESSAGE, normalizeLogoUrl } from '@/lib/mapping/logo'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 import { MANAGER_ROLE_OPTIONS, type ManagerRole } from '@/lib/mapping/manager-roles'
 
@@ -26,7 +27,7 @@ async function requireMappingOwner(managerId: string, mappingId: string) {
     .selectFrom('mappings')
     .select([
       'id', 'tenant_id', 'name', 'slug', 'description', 'status', 'module_type',
-      'is_demo', 'created_at', 'updated_at', 'config', 'tcle_text', 'csv_columns',
+      'is_demo', 'created_at', 'updated_at', 'config', 'tcle_text', 'logo_url', 'csv_columns',
     ])
     .where('id', '=', mappingId)
     .executeTakeFirst()
@@ -214,6 +215,8 @@ type MappingPatchPayload = MappingConfigPayload & {
   status?: 'draft' | 'active' | 'archived'
   name?: string
   tcle_text?: string
+  /** String vazia ou `null` remove a logo do cliente; ausente preserva a atual. */
+  logo_url?: string | null
   /**
    * Presente quando o gestor está editando a configuração do questionário/dashboard.
    * Sem esta flag o PATCH altera apenas status/nome/TCLE, preservando a config —
@@ -264,6 +267,15 @@ export async function PATCH(request: NextRequest, { params }: Readonly<RoutePara
   if (payload.tcle_text !== undefined) {
     const sanitized = sanitizeRichTextHtml(payload.tcle_text)
     updates.tcle_text = isRichTextEmpty(sanitized) ? null : sanitized
+  }
+
+  if (payload.logo_url !== undefined) {
+    const normalizedLogo = normalizeLogoUrl(payload.logo_url)
+    // Enviar uma imagem inválida é erro; enviar vazio/null é remoção deliberada.
+    if (!normalizedLogo && typeof payload.logo_url === 'string' && payload.logo_url.trim()) {
+      return NextResponse.json({ error: LOGO_REJECTED_MESSAGE }, { status: 400 })
+    }
+    updates.logo_url = normalizedLogo
   }
 
   if (payload.update_config) {

@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS } from '@/lib/brand'
 import { useThemeTokens } from '@/lib/theme'
+import { MappingLogo, useMappingLogo } from '@/components/mapping/MappingLogo'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ export default function MappingConsentimentoPage() {
   const mappingSlug = params.slug
 
   const T = useThemeTokens()
+  const logoUrl = useMappingLogo(mappingSlug)
 
   const [accepted, setAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -105,9 +107,11 @@ export default function MappingConsentimentoPage() {
               <AlertPresence show={!!error}>{error}</AlertPresence>
 
               <Button type="submit" size="lg" loading={loading} disabled={!accepted} className="w-full">
-                {loading ? 'Confirmando...' : 'Continuar para o formulário'}
+                {loading ? 'Confirmando...' : 'Continuar'}
               </Button>
             </form>
+
+            <MappingLogo src={logoUrl} />
           </Card>
         </motion.div>
       </div>

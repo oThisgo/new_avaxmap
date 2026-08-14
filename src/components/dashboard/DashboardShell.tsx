@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import type jsPDFType from 'jspdf'
@@ -9,11 +9,14 @@ import DemographicsTab from './tabs/DemographicsTab'
 import HseTab from './tabs/HseTab'
 import RemoteTab from './tabs/RemoteTab'
 import MentalHealthTab from './tabs/MentalHealthTab'
+import RiskDataTab from './tabs/RiskDataTab'
 import InsightsTab from './tabs/InsightsTab'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import ReportRiskModal from './ReportRiskModal'
 import { BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
 import { isMappingAdmin, isMappingSuperuser } from '@/lib/auth/roles'
+import { normalizeLogoUrl } from '@/lib/mapping/logo'
+import { MappingLogo } from '@/components/mapping/MappingLogo'
 import { useThemeTokens } from '@/lib/theme'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
@@ -41,16 +44,21 @@ function FilterDropdown({
   )
 }
 
-const TABS = [
-  { id: 'overview', label: 'Visão Geral' },
-  { id: 'demographics', label: 'Dados Demográficos' },
-  { id: 'hse', label: 'HSE por Domínio' },
-  { id: 'remote', label: 'Trabalho Remoto' },
-  { id: 'mental_health', label: 'Saúde Mental' },
-  { id: 'insights', label: '✦ Insights' },
-] as const
+/**
+ * Abas possíveis. Quais delas realmente aparecem (e em que ordem) é derivado
+ * dos módulos do mapeamento e do papel do gestor — ver o useMemo `tabs`.
+ */
+type TabId =
+  | 'overview'
+  | 'demographics'
+  | 'hse'
+  | 'remote'
+  | 'mental_health'
+  | 'risk_data'
+  | 'insights'
 
-type TabId = (typeof TABS)[number]['id']
+/** Frequência de checagem de novos casos de risco enquanto o dashboard está aberto. */
+const RISK_STATUS_POLL_MS = 60_000
 
 type FilterOptions = Record<string, string[]>
 type ActiveFilters = Record<string, string>
@@ -59,6 +67,7 @@ type DashboardRuntimeConfig = {
   modules: string[]
   demographic_columns: string[]
   field_labels: Record<string, string>
+  logo_url: string | null
 }
 
 interface ManagerDisplay {
@@ -88,12 +97,13 @@ export default function DashboardShell() {
     menuBg: baseT.surface,
   }
 
-  const [tabs, setTabs] = useState<Array<{ id: TabId; label: string }>>(TABS as unknown as Array<{ id: TabId; label: string }>)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
+  const [riskStatus, setRiskStatus] = useState<{ total: number; unseen: number }>({ total: 0, unseen: 0 })
   const [dashboardConfig, setDashboardConfig] = useState<DashboardRuntimeConfig>({
     modules: ['sociodemografico', 'hse', 'ietr'],
     demographic_columns: ['gender', 'age_range', 'race_color', 'education_level', 'marital_status', 'disability', 'disability_types'],
     field_labels: {},
+    logo_url: null,
   })
   const [availableFilters, setAvailableFilters] = useState<string[]>(['area', 'role', 'employment_type', 'gender', 'race_color'])
   const [filterLabels, setFilterLabels] = useState<Record<string, string>>({
@@ -146,13 +156,6 @@ export default function DashboardShell() {
       })
       .then((json) => {
         const modules: string[] = Array.isArray(json?.config?.modules) ? json.config.modules : ['sociodemografico', 'hse', 'ietr']
-        const dynamicTabs: Array<{ id: TabId; label: string }> = [{ id: 'overview', label: 'Visão Geral' }]
-        if (modules.includes('sociodemografico')) dynamicTabs.push({ id: 'demographics', label: 'Dados Demográficos' })
-        if (modules.includes('hse')) dynamicTabs.push({ id: 'hse', label: 'HSE por Domínio' })
-        if (modules.includes('ietr')) dynamicTabs.push({ id: 'remote', label: 'Trabalho Remoto' })
-        if (modules.includes('saude_mental')) dynamicTabs.push({ id: 'mental_health', label: 'Saúde Mental' })
-        dynamicTabs.push({ id: 'insights', label: '✦ Insights' })
-        setTabs(dynamicTabs)
 
         const demographicColumns: string[] = Array.isArray(json?.config?.demographic_columns)
           ? json.config.demographic_columns
@@ -161,16 +164,71 @@ export default function DashboardShell() {
           ? json.config.field_labels
           : {}
 
-        setDashboardConfig({ modules, demographic_columns: demographicColumns, field_labels: fieldLabels })
+        setDashboardConfig({
+          modules,
+          demographic_columns: demographicColumns,
+          field_labels: fieldLabels,
+          logo_url: normalizeLogoUrl(json?.mapping?.logo_url),
+        })
       })
       .catch(() => {})
   }, [])
+
+  const canSuperuser = !!managerDisplay && isMappingSuperuser(managerDisplay.role, managerDisplay.mapping_role ?? null)
+  const canAdmin = !!managerDisplay && isMappingAdmin(managerDisplay.role, managerDisplay.mapping_role ?? null)
+  // Dados nominais de risco: só com o módulo que os coleta e só para
+  // admin/superuser. O backend repete as duas checagens — isto aqui é UI.
+  const canRiskData = canAdmin && dashboardConfig.modules.includes('saude_mental')
+
+  /**
+   * As abas dependem dos módulos do mapeamento E do papel do gestor, que chegam
+   * de requisições diferentes. Derivar (em vez de guardar em estado e montar
+   * dentro do `.then` de uma delas) garante que a aba restrita apareça assim que
+   * as duas informações estiverem disponíveis, não importa qual chegue primeiro.
+   */
+  const tabs = useMemo<Array<{ id: TabId; label: string }>>(() => {
+    const modules = dashboardConfig.modules
+    const list: Array<{ id: TabId; label: string }> = [{ id: 'overview', label: 'Visão Geral' }]
+
+    if (modules.includes('sociodemografico')) list.push({ id: 'demographics', label: 'Dados Demográficos' })
+    if (modules.includes('hse')) list.push({ id: 'hse', label: 'HSE por Domínio' })
+    if (modules.includes('ietr')) list.push({ id: 'remote', label: 'Trabalho Remoto' })
+    if (modules.includes('saude_mental')) list.push({ id: 'mental_health', label: 'Saúde Mental' })
+    if (canRiskData) list.push({ id: 'risk_data', label: 'Dados de Risco' })
+    list.push({ id: 'insights', label: '✦ Insights' })
+
+    return list
+  }, [dashboardConfig.modules, canRiskData])
 
   useEffect(() => {
     if (!tabs.some((tab) => tab.id === activeTab)) {
       setActiveTab(tabs[0]?.id ?? 'overview')
     }
   }, [activeTab, tabs])
+
+  /**
+   * Contadores do indicador de risco. Só números — nenhum dado pessoal — para
+   * que a notificação apareça sem exigir a reconfirmação de senha, que fica
+   * reservada à lista nominal.
+   */
+  const refreshRiskStatus = useCallback(() => {
+    if (!canRiskData) return
+    fetch('/api/dashboard/risk-data/status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!json) return
+        setRiskStatus({ total: Number(json.total) || 0, unseen: Number(json.unseen) || 0 })
+      })
+      .catch(() => {})
+  }, [canRiskData])
+
+  useEffect(() => {
+    if (!canRiskData) return
+
+    refreshRiskStatus()
+    const timer = setInterval(refreshRiskStatus, RISK_STATUS_POLL_MS)
+    return () => clearInterval(timer)
+  }, [canRiskData, refreshRiskStatus])
 
   useEffect(() => {
     fetch('/api/auth/manager/me')
@@ -379,9 +437,6 @@ export default function DashboardShell() {
     setFilters((prev) => Object.fromEntries(Object.keys(prev).map((key) => [key, ''])))
   }
 
-  const canSuperuser = !!managerDisplay && isMappingSuperuser(managerDisplay.role, managerDisplay.mapping_role ?? null)
-  const canAdmin = !!managerDisplay && isMappingAdmin(managerDisplay.role, managerDisplay.mapping_role ?? null)
-
   const activeCount = Object.values(filters).filter(Boolean).length
   const reportRiskFilters = {
     area: filters.area ?? '',
@@ -394,9 +449,12 @@ export default function DashboardShell() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: T.bg, color: T.text }}>
       <header className="border-b px-4 sm:px-6 py-3 sm:py-4 flex items-start sm:items-center justify-between gap-3" style={{ borderColor: T.border, backgroundColor: T.surface }}>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base sm:text-xl font-semibold tracking-tight leading-snug">Dashboard de Riscos Psicossociais</h1>
-          <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textMuted }}>{BRAND_NAME}</p>
+        <div className="flex flex-1 min-w-0 items-center gap-3">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-xl font-semibold tracking-tight leading-snug">Dashboard de Riscos Psicossociais</h1>
+            <p className="text-xs sm:text-sm mt-0.5" style={{ color: T.textMuted }}>{BRAND_NAME}</p>
+          </div>
+          <MappingLogo src={dashboardConfig.logo_url} variant="header" className="hidden sm:flex" />
         </div>
 
         <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
@@ -519,11 +577,26 @@ export default function DashboardShell() {
       <div className="px-4 sm:px-6 pt-4 border-b overflow-x-auto" style={{ borderColor: T.border }}>
         <div className="relative flex gap-1 min-w-max">
           <div aria-hidden style={{ position: 'absolute', bottom: 0, left: tabIndicator.left, width: tabIndicator.width, height: '100%', backgroundColor: BRAND_COLORS.primary, borderRadius: '6px 6px 0 0', transition: 'left 0.22s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1)', zIndex: 0 }} />
-          {tabs.map((tab) => (
-            <button key={tab.id} ref={(el) => { tabRefs.current[tab.id] = el }} onClick={() => setActiveTab(tab.id)} className="relative px-4 py-2 text-sm font-medium rounded-t-md whitespace-nowrap flex-shrink-0 transition-colors" style={{ color: activeTab === tab.id ? '#FFFFFF' : T.textMuted, backgroundColor: 'transparent', zIndex: 1 }} onMouseEnter={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.text }} onMouseLeave={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.textMuted }}>
-              {tab.label}
-            </button>
-          ))}
+          {tabs.map((tab) => {
+            const alerting = tab.id === 'risk_data' && riskStatus.unseen > 0
+            return (
+              <button key={tab.id} ref={(el) => { tabRefs.current[tab.id] = el }} onClick={() => setActiveTab(tab.id)} className="relative px-4 py-2 text-sm font-medium rounded-t-md whitespace-nowrap flex-shrink-0 transition-colors" style={{ color: activeTab === tab.id ? '#FFFFFF' : T.textMuted, backgroundColor: 'transparent', zIndex: 1 }} onMouseEnter={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.text }} onMouseLeave={(e) => { if (activeTab !== tab.id) e.currentTarget.style.color = T.textMuted }}>
+                {tab.label}
+                {alerting && (
+                  <span
+                    className="risk-alert-dot"
+                    title={`${riskStatus.unseen} caso(s) de risco ainda não visto(s)`}
+                    aria-label={`${riskStatus.unseen} caso de risco ainda não visto`}
+                    style={{
+                      position: 'absolute', top: 4, right: 4,
+                      width: 9, height: 9, borderRadius: '50%',
+                      backgroundColor: BRAND_COLORS.danger,
+                    }}
+                  />
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -541,6 +614,7 @@ export default function DashboardShell() {
             {activeTab === 'hse' && <HseTab query={buildQuery()} />}
             {activeTab === 'remote' && <RemoteTab query={buildQuery()} />}
             {activeTab === 'mental_health' && <MentalHealthTab query={buildQuery()} />}
+            {activeTab === 'risk_data' && <RiskDataTab onSeen={refreshRiskStatus} />}
             {activeTab === 'insights' && <InsightsTab query={buildQuery()} isSuperuser={canSuperuser} />}
           </motion.div>
         </AnimatePresence>

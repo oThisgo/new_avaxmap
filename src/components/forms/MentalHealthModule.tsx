@@ -363,10 +363,30 @@ function SectionHeader({
       <h3 className="text-lg font-semibold" style={{ color: theme.text }}>{title}</h3>
       <p className="text-sm" style={{ color: theme.textFaint }}>{subtitle}</p>
       {sectionKey === 'percepcao_saude' && (
-        <p className="mt-2 text-sm" style={{ color: theme.textMuted }}>
-          <strong style={{ color: theme.text }}>{MENTAL_HEALTH_SCALE_HEADER.title}.</strong>{' '}
-          {MENTAL_HEALTH_SCALE_HEADER.instructions}
-        </p>
+        <div
+          className="mt-3 rounded-lg px-4 py-3"
+          style={{ border: `1px solid ${theme.border}`, backgroundColor: theme.inputBg }}
+        >
+          <p className="text-sm font-semibold" style={{ color: theme.text }}>
+            {MENTAL_HEALTH_SCALE_HEADER.title}:
+          </p>
+          <p className="mt-2 text-sm font-semibold" style={{ color: theme.text }}>
+            {MENTAL_HEALTH_SCALE_HEADER.instructionsTitle}
+          </p>
+          <p className="mt-1 text-sm leading-relaxed" style={{ color: theme.textMuted }}>
+            {MENTAL_HEALTH_SCALE_HEADER.instructions}
+          </p>
+          <ul className="mt-2 space-y-1">
+            {MENTAL_HEALTH_SCALE_HEADER.anchors.map((anchor) => (
+              <li key={anchor.value} className="flex items-baseline gap-2 text-sm" style={{ color: theme.textMuted }}>
+                <span aria-hidden style={{ color: theme.textFaint }}>•</span>
+                <span>
+                  <strong style={{ color: theme.text }}>{anchor.value}</strong> — {anchor.label}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </header>
   )

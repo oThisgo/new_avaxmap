@@ -496,8 +496,13 @@ export const MENTAL_HEALTH_EDITABLE_QUESTIONS: ReadonlyArray<{ code: string; dom
 
 export const MENTAL_HEALTH_SCALE_HEADER = {
   title: 'Dê uma nota de 0 a 10',
+  instructionsTitle: 'Instruções de Preenchimento',
   instructions:
     'Quanto mais próximo de 0, pior a sua avaliação; quanto mais próximo de 10, melhor a sua avaliação.',
+  anchors: [
+    { value: 0, label: 'Muito ruim' },
+    { value: 10, label: 'Excelente' },
+  ],
 } as const
 
 // ─── Registro de campos (derivado das questões) ──────────────────────────────

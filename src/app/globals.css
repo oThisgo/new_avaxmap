@@ -183,6 +183,15 @@ body {
   to   { stroke-dashoffset: 0; }
 }
 
+/* Indicador de caso de risco não visto na aba "Dados de Risco" do dashboard. */
+@keyframes riskPulse {
+  0%, 100% { transform: scale(1);   box-shadow: 0 0 0 0 rgba(247, 53, 56, 0.55); }
+  50%      { transform: scale(1.1); box-shadow: 0 0 0 5px rgba(247, 53, 56, 0); }
+}
+.risk-alert-dot {
+  animation: riskPulse 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

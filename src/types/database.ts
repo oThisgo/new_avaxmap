@@ -116,6 +116,8 @@ export interface Mapping {
   module_type?: ModuleType | null
   is_demo: boolean
   tcle_text?: string | null
+  /** Logo do cliente exibida nas telas do mapeamento (ver src/lib/mapping/logo.ts). */
+  logo_url?: string | null
   csv_columns?: string[] | null
   config?: Record<string, unknown> | null
   created_at: string

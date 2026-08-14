@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useTheme } from '@/components/ThemeProvider'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
+import { MappingLogo, useMappingLogo } from '@/components/mapping/MappingLogo'
 
 interface SubmitLikeEvent {
   preventDefault: () => void
@@ -27,6 +28,8 @@ export default function MappingManagerLoginPage() {
     inputBg: isDark ? BRAND_COLORS.darkBg : BRAND_COLORS.lightSurface2,
     textFaint: isDark ? BRAND_COLORS.textFaintDark : BRAND_COLORS.textFaintLight,
   }
+
+  const logoUrl = useMappingLogo(mappingSlug)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -165,6 +168,8 @@ export default function MappingManagerLoginPage() {
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
+
+          <MappingLogo src={logoUrl} />
         </div>
       </div>
     </div>

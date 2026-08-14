@@ -1,14 +1,20 @@
 "use client"
 
 import { motion } from 'motion/react'
+import { useParams } from 'next/navigation'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { BRAND_ASSETS, BRAND_COLORS, BRAND_NAME } from '@/lib/brand'
 import { useThemeTokens } from '@/lib/theme'
+import { MappingLogo, useMappingLogo } from '@/components/mapping/MappingLogo'
 import { Card } from '@/components/ui/card'
 import Image from 'next/image'
 
 export default function AgradecimentoPage() {
   const T = useThemeTokens()
+  // Esta página é reaproveitada em /agradecimento (sem mapeamento) e em
+  // /mapeamento/[slug]/agradecimento — só no segundo caso há slug e logo.
+  const params = useParams<{ slug?: string }>()
+  const logoUrl = useMappingLogo(params?.slug)
 
   return (
     <div className="flex min-h-screen flex-col px-4" style={{ backgroundColor: T.bg }}>
@@ -45,6 +51,8 @@ export default function AgradecimentoPage() {
             >
               Suas respostas foram registradas com sucesso e serão analisadas apenas de forma agregada, preservando anonimato e confidencialidade.
             </div>
+
+            <MappingLogo src={logoUrl} />
           </motion.div>
         </Card>
       </div>

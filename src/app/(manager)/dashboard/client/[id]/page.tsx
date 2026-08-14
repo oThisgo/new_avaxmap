@@ -25,6 +25,9 @@ import { MANAGER_ROLE_OPTIONS, managerRoleLabel, type ManagerRole } from '@/lib/
 import { SOCIODEMOGRAPHIC_QUESTION_KEYS } from '@/lib/mapping/sociodemographic-questions'
 import { computeColumnLockMaps } from '@/lib/mapping/column-locks'
 import { TcleEditor } from '@/components/tcle/TcleEditor'
+import { LogoUploadField } from '@/components/mapping/LogoUploadField'
+import { normalizeLogoUrl } from '@/lib/mapping/logo'
+import { readJsonResponse } from '@/lib/http/read-json-response'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 
 type MappingDetail = {
@@ -39,6 +42,7 @@ type MappingDetail = {
   updated_at: string
   config: Record<string, unknown> | null
   tcle_text: string | null
+  logo_url: string | null
   csv_columns: string[] | null
 }
 
@@ -176,6 +180,10 @@ export default function MappingConfigPage() {
   const [tcleBaseline, setTcleBaseline] = useState('')
   const [tcleSaving, setTcleSaving] = useState(false)
   const [tcleSuccess, setTcleSuccess] = useState('')
+  const [logoDraft, setLogoDraft] = useState<string | null>(null)
+  const [logoBaseline, setLogoBaseline] = useState<string | null>(null)
+  const [logoSaving, setLogoSaving] = useState(false)
+  const [logoSuccess, setLogoSuccess] = useState('')
 
   const [openingMapping, setOpeningMapping] = useState(false)
 
@@ -208,6 +216,7 @@ export default function MappingConfigPage() {
 
   const configDirty = configDraft !== null && JSON.stringify(configDraft) !== configBaseline
   const tcleDirty = tcleDraft !== tcleBaseline
+  const logoDirty = logoDraft !== logoBaseline
 
   async function loadMapping() {
     setLoading(true)
@@ -230,6 +239,10 @@ export default function MappingConfigPage() {
         const tcleText = typeof data.mapping.tcle_text === 'string' ? data.mapping.tcle_text : ''
         setTcleDraft(tcleText)
         setTcleBaseline(tcleText)
+
+        const logo = normalizeLogoUrl(data.mapping.logo_url)
+        setLogoDraft(logo)
+        setLogoBaseline(logo)
       }
     } catch {
       setError('Erro de conexão ao carregar o mapeamento.')
@@ -298,9 +311,9 @@ export default function MappingConfigPage() {
           mental_health_question_text_overrides: configDraft.mental_health_question_text_overrides,
         }),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? 'Não foi possível salvar a configuração.')
+      const result = await readJsonResponse(res, 'Não foi possível salvar a configuração.')
+      if (!result.ok) {
+        setError(result.error)
         return
       }
       setConfigSuccess('Configuração salva. As mudanças já valem para o formulário, o dashboard e os relatórios.')
@@ -309,6 +322,36 @@ export default function MappingConfigPage() {
       setError('Erro de conexão ao salvar a configuração.')
     } finally {
       setConfigSaving(false)
+    }
+  }
+
+  async function handleSaveLogo() {
+    if (!logoDirty) return
+    setError('')
+    setLogoSuccess('')
+    setLogoSaving(true)
+    try {
+      const res = await fetch(`/api/client/mappings/${mappingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        // String vazia é como a API entende "remover a logo".
+        body: JSON.stringify({ logo_url: logoDraft ?? '' }),
+      })
+      const result = await readJsonResponse(res, 'Não foi possível salvar a logo.')
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setLogoSuccess(
+        logoDraft
+          ? 'Logo salva. Ela já aparece nas telas deste mapeamento.'
+          : 'Logo removida das telas deste mapeamento.',
+      )
+      await loadMapping()
+    } catch {
+      setError('Erro de conexão ao salvar a logo.')
+    } finally {
+      setLogoSaving(false)
     }
   }
 
@@ -324,15 +367,15 @@ export default function MappingConfigPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tcle_text: isRichTextEmpty(sanitized) ? '' : sanitized }),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? 'Não foi possível salvar o TCLE.')
+      const result = await readJsonResponse(res, 'Não foi possível salvar o TCLE.')
+      if (!result.ok) {
+        setError(result.error)
         return
       }
       setTcleSuccess('TCLE salvo. Novos acessos ao formulário já veem o texto atualizado.')
       await loadMapping()
     } catch {
-      setError('Erro de conexão ao salvar o TCLE.')
+      setError('Erro de conexão ao salvar o TCLE. A requisição não chegou a receber resposta do servidor.')
     } finally {
       setTcleSaving(false)
     }
@@ -582,6 +625,48 @@ export default function MappingConfigPage() {
                 </div>
               </Card>
             )}
+
+            <Card className="mb-6 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold mb-1">Logo da empresa</h2>
+                  <p className="text-sm" style={{ color: T.textMuted }}>
+                    Marca do cliente exibida junto da BeeTouch nas telas deste mapeamento.
+                  </p>
+                </div>
+                <Button
+                  onClick={handleSaveLogo}
+                  disabled={!logoDirty || logoSaving}
+                  loading={logoSaving}
+                >
+                  {logoSaving ? 'Salvando...' : 'Salvar logo'}
+                </Button>
+              </div>
+
+              {logoSuccess && (
+                <div
+                  className="mt-4 rounded-lg px-4 py-3 text-sm"
+                  style={{
+                    backgroundColor: `${BRAND_COLORS.primary}18`,
+                    border: `1px solid ${BRAND_COLORS.primary}55`,
+                    color: T.text,
+                  }}
+                >
+                  {logoSuccess}
+                </div>
+              )}
+
+              <div className="mt-4">
+                <LogoUploadField
+                  value={logoDraft}
+                  onChange={(next) => {
+                    setLogoDraft(next)
+                    setLogoSuccess('')
+                  }}
+                  disabled={logoSaving}
+                />
+              </div>
+            </Card>
 
             <Card className="mb-6 p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">

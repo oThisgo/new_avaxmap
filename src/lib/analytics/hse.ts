@@ -12,11 +12,19 @@ const HSE_SCALE: Record<string, number> = {
 
 // ─── Itens protetivos: score = 4 - resposta ──────────────────────────────────
 // Itens não protetivos: score = resposta
+//
+// 🔧 Q33 ("Tenho suportado trabalhos emocionalmente exigentes") foi corrigida:
+// não é um item de apoio recebido (como Q08/Q23/Q29/Q35, onde "Sempre" ocorrer
+// é bom), e sim de exposição a uma demanda emocional — mesma estrutura de
+// Q03/Q06/Q09/Q18/Q20. Nela "Sempre" = alta exposição = alto risco e "Nunca" =
+// baixa exposição = baixo risco, então a nota deve acompanhar a resposta
+// diretamente, sem inversão. Classificá-la como protetiva fazia "Nunca"
+// pontuar como risco máximo — o oposto do esperado.
 const PROTECTIVE = new Set([
   'Q01', 'Q02', 'Q04', 'Q07', 'Q08',
   'Q10', 'Q11', 'Q13', 'Q15', 'Q17', 'Q19',
   'Q23', 'Q24', 'Q25', 'Q26', 'Q27',
-  'Q28', 'Q29', 'Q30', 'Q31', 'Q32', 'Q33', 'Q35',
+  'Q28', 'Q29', 'Q30', 'Q31', 'Q32', 'Q35',
 ])
 
 // ─── Mapeamento de domínios ───────────────────────────────────────────────────

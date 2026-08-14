@@ -78,6 +78,7 @@ export interface Mappings {
   description: string | null;
   id: Generated<string>;
   is_demo: Generated<boolean>;
+  logo_url: string | null;
   module_type: string | null;
   name: string;
   slug: string;
@@ -119,6 +120,12 @@ export interface Responses {
   submitted_at: Generated<Timestamp>;
 }
 
+export interface RiskDataViews {
+  last_seen_at: Generated<Timestamp>;
+  manager_id: string;
+  mapping_id: string;
+}
+
 export interface TenantManagers {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
@@ -141,6 +148,7 @@ export interface DB {
   mapping_managers: MappingManagers;
   mappings: Mappings;
   responses: Responses;
+  risk_data_views: RiskDataViews;
   tenant_managers: TenantManagers;
   tenants: Tenants;
 }

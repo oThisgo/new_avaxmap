@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/pool'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
+import { normalizeLogoUrl } from '@/lib/mapping/logo'
 
 interface RouteParams {
   params: Promise<{ slug: string }>
@@ -12,7 +13,7 @@ export async function GET(_: NextRequest, { params }: Readonly<RouteParams>) {
 
   const mapping = await db
     .selectFrom('mappings')
-    .select(['id', 'name', 'slug', 'status', 'tcle_text', 'config'])
+    .select(['id', 'name', 'slug', 'status', 'tcle_text', 'logo_url', 'config'])
     .where('slug', '=', normalizedSlug)
     .executeTakeFirst()
 
@@ -28,6 +29,7 @@ export async function GET(_: NextRequest, { params }: Readonly<RouteParams>) {
       name: mapping.name,
       slug: mapping.slug,
       tcle_text: mapping.tcle_text ?? null,
+      logo_url: normalizeLogoUrl(mapping.logo_url),
     },
     config,
   })
