@@ -711,7 +711,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
 
         {socioFieldVisibility.race_color && (
           <label className="text-sm">
-            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Raça/Cor<RequiredMark /></span>
+            <span className="mb-1.5 block" style={{ color: T.textMuted }}>Cor<RequiredMark /></span>
             <Select
               value={socio.race_color}
               options={RACE_OPTIONS}
@@ -892,7 +892,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   if (showSocioModule) {
     moduleSections.push({
       id: 'socio',
-      title: 'Dados sociodemográficos',
+      title: 'Dados Demográficos',
       subtitle: 'Dados para análises agregadas por perfil',
       content: renderSocioFields(),
     })
@@ -900,7 +900,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   if (hasHseModule) {
     moduleSections.push({
       id: 'hse',
-      title: 'Condições psicossociais no trabalho',
+      title: 'Questões relacionadas ao trabalho',
       subtitle: 'Questões sobre o ambiente de trabalho em geral',
       content: renderHseQuestions(),
     })

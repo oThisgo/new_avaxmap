@@ -34,7 +34,7 @@ const FIELD_LABELS: Record<string, string> = {
   email: 'E-mail',
   birth_date: 'Data de nascimento',
   gender: 'Gênero',
-  race_color: 'Raça/Cor',
+  race_color: 'Cor',
   education_level: 'Escolaridade',
   marital_status: 'Estado civil',
   disability: 'Deficiência',

@@ -111,7 +111,7 @@ export default function DashboardShell() {
     role: 'Cargo',
     employment_type: 'Vínculo',
     gender: 'Gênero',
-    race_color: 'Raça/Cor',
+    race_color: 'Cor',
     age_range: 'Faixa etária',
   })
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({})
@@ -320,7 +320,7 @@ export default function DashboardShell() {
         if (data.filters.area) filterParts.push(`Área: ${data.filters.area}`)
         if (data.filters.role) filterParts.push(`Cargo: ${data.filters.role}`)
         if (data.filters.gender) filterParts.push(`Gênero: ${data.filters.gender}`)
-        if (data.filters.race_color) filterParts.push(`Raça/Cor: ${data.filters.race_color}`)
+        if (data.filters.race_color) filterParts.push(`Cor: ${data.filters.race_color}`)
         if (data.filters.employment_type) filterParts.push(`Vínculo: ${data.filters.employment_type}`)
         if (filterParts.length > 0) {
           doc.setFontSize(8)
@@ -365,7 +365,7 @@ export default function DashboardShell() {
       addSection('Por Cargo', data.by_role)
       addSection('Por Vínculo', data.by_employment_type)
       addSection('Por Gênero', data.by_gender)
-      addSection('Por Raça/Cor', data.by_race_color)
+      addSection('Por Cor', data.by_race_color)
 
       const lastY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
       doc.setFontSize(11)

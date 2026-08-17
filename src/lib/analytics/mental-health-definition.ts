@@ -307,7 +307,11 @@ export const MENTAL_HEALTH_QUESTIONS: readonly MentalHealthQuestion[] = [
     text: 'Qual foi o desastre mais intenso para você nos últimos dois anos?',
     hint: 'Em caso de mais de um desastre em sua cidade, marque a opção que mais lhe impactou.',
     field: 'disaster_type',
-    required: false,
+    // 🔧 Obrigatório apenas enquanto visível: quem respondeu "Sim" à exposição
+    // a desastres precisa detalhar qual foi; quem respondeu "Não" nem vê a
+    // pergunta (visibleWhen cuida disso — ver isMentalHealthQuestionVisible e
+    // a checagem de requiredness em validateMentalHealthAnswers).
+    required: true,
     options: DISASTER_TYPE_OPTIONS,
     visibleWhen: { field: 'exposed_natural_disaster', equals: true },
   },
@@ -317,7 +321,7 @@ export const MENTAL_HEALTH_QUESTIONS: readonly MentalHealthQuestion[] = [
     section: 'comportamento_emocao',
     text: 'Qual foi seu contato com o desastre que marcou como mais intenso?',
     field: 'disaster_contact',
-    required: false,
+    required: true,
     options: DISASTER_CONTACT_OPTIONS,
     visibleWhen: { field: 'exposed_natural_disaster', equals: true },
   },
@@ -327,7 +331,7 @@ export const MENTAL_HEALTH_QUESTIONS: readonly MentalHealthQuestion[] = [
     section: 'comportamento_emocao',
     text: 'Após o desastre, você se sente mais vulnerável às mudanças climáticas ou desastres ambientais futuros?',
     field: 'disaster_vulnerability_feeling',
-    required: false,
+    required: true,
     options: INTENSITY_OPTIONS,
     visibleWhen: { field: 'exposed_natural_disaster', equals: true },
   },
@@ -337,7 +341,7 @@ export const MENTAL_HEALTH_QUESTIONS: readonly MentalHealthQuestion[] = [
     section: 'comportamento_emocao',
     text: 'Após o desastre, você tem se preocupado mais com a segurança do seu lar ou local de trabalho?',
     field: 'disaster_safety_concern',
-    required: false,
+    required: true,
     options: INTENSITY_OPTIONS,
     visibleWhen: { field: 'exposed_natural_disaster', equals: true },
   },

@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
           ...(area ? [['Área:', area]] : []),
           ...(role ? [['Cargo:', role]] : []),
           ...(gender ? [['Gênero:', gender]] : []),
-          ...(raceColor ? [['Raça/Cor:', raceColor]] : []),
+          ...(raceColor ? [['Cor:', raceColor]] : []),
           ...(employmentType ? [['Vínculo:', employmentType]] : []),
           [],
         ]

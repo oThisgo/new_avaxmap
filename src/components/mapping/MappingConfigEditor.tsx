@@ -89,7 +89,7 @@ export const MODULE_DEFS: readonly ModuleDef[] = [
   {
     key: 'sociodemografico',
     title: 'Sociodemográfico',
-    description: 'Perfil dos colaboradores (idade, gênero, raça/cor, escolaridade, estado civil, deficiência) para cruzamentos e filtros no dashboard. Escolha abaixo quais perguntas fazer — as que já vêm de uma coluna da base ficam travadas automaticamente.',
+    description: 'Perfil dos colaboradores (idade, gênero, cor, escolaridade, estado civil, deficiência) para cruzamentos e filtros no dashboard. Escolha abaixo quais perguntas fazer — as que já vêm de uma coluna da base ficam travadas automaticamente.',
   },
   {
     key: 'hse',

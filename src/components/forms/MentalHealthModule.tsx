@@ -326,6 +326,11 @@ export function MentalHealthModule({
         {question.hint && (
           <p className="mt-1.5 text-sm leading-relaxed" style={{ color: T.textFaint }}>{question.hint}</p>
         )}
+        {question.kind === 'checkbox_group' && (
+          <p className="mt-1 text-xs italic" style={{ color: T.textFaint }}>
+            Mais de uma opção pode ser selecionada nesta questão.
+          </p>
+        )}
         <div className="mt-4">{renderQuestionBody(question)}</div>
       </div>
     )

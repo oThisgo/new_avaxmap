@@ -34,7 +34,7 @@ const CANONICAL_LABELS: Record<string, string> = {
   area: 'Área',
   role: 'Cargo',
   gender: 'Gênero',
-  race_color: 'Raça/Cor',
+  race_color: 'Cor',
   employment_type: 'Vínculo',
   age_range: 'Faixa etária',
   education_level: 'Escolaridade',

@@ -25,7 +25,7 @@ export const SOCIODEMOGRAPHIC_QUESTION_KEYS: readonly SociodemographicQuestionKe
 export const SOCIODEMOGRAPHIC_QUESTION_LABELS: Record<SociodemographicQuestionKey, string> = {
   age_range: 'Data de nascimento',
   gender: 'Gênero',
-  race_color: 'Raça/Cor',
+  race_color: 'Cor',
   marital_status: 'Estado civil',
   education_level: 'Escolaridade',
   disability: 'Possui deficiência?',

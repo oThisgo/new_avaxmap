@@ -38,7 +38,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   area: 'Área',
   role: 'Cargo',
   gender: 'Gênero',
-  race_color: 'Raça/Cor',
+  race_color: 'Cor',
   employment_type: 'Vínculo',
 }
 
@@ -275,7 +275,7 @@ ${remoteDomainLines}
 ## Perfil Demográfico
 Gênero:
 ${genderLines || '  - Sem dados'}
-Raça/Cor:
+Cor:
 ${raceLines || '  - Sem dados'}
 
 ## Cruzamento Demográfico — Score HSE médio por grupo (grupos com ≥5 respondentes, ordem decrescente de risco)
@@ -290,7 +290,7 @@ ${areaLines}
    **Visão Geral**
    **Pontos de Atenção Prioritários**
    **Trabalho Remoto** (inclua apenas se remoteCount > 0)
-   **Disparidades por Grupo** (inclua apenas se houver variações relevantes entre grupos — destaque os grupos de maior e menor risco e possíveis disparidades por gênero, raça/cor, área ou cargo)
+   **Disparidades por Grupo** (inclua apenas se houver variações relevantes entre grupos — destaque os grupos de maior e menor risco e possíveis disparidades por gênero, cor, área ou cargo)
    **Recomendações Práticas** (mínimo 3 ações concretas numeradas; considere os grupos em situação mais crítica)
    **Plano de Ação ISO 45003** (com base nos dados de risco por área, elabore prioridades de intervenção para as áreas de maior risco — cite nível de prioridade, principais fatores de risco identificados para cada área e intervenções práticas alinhadas à ISO 45003: controles organizacionais, participação dos trabalhadores, suporte à liderança e acompanhamento contínuo; use subseções ou lista por área; inclua apenas áreas com ≥5 respondentes)
 3. Refira-se a Demandas, Controle, Relacionamentos etc. como domínios dentro dos módulos HSE e IETR.
