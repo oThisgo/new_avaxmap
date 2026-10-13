@@ -1,303 +1,118 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { generateText, jsonSchema, Output } from 'ai'
+import { google } from '@ai-sdk/google'
 import { db } from '@/lib/db/pool'
 import { getManagerFromSession, isMappingSuperuser } from '@/lib/auth/manager'
 import { getMappingScopeContext, getMappingManagerRole } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
-import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
-import { generateText } from 'ai'
-import { google } from '@ai-sdk/google'
+import {
+  parseCollaboratorFilters,
+  applyCollaboratorFilters,
+  getCollaboratorFieldValue,
+  type CollaboratorFieldSource,
+} from '@/lib/mapping/collaborator-fields'
+import type { HighlightResponseRow } from '@/lib/analytics/mapping-highlights'
+import { buildInsightsEvidence, type InsightsEvidence } from '@/lib/analytics/insights-evidence'
+import { INSIGHTS_JSON_SCHEMA, type InsightsAnalysis, type InsightsPayload } from '@/lib/analytics/insights-schema'
 
-function classifyHse(avg: number) {
-  if (avg >= 2.5) return 'Alto risco'
-  if (avg >= 1.5) return 'Risco moderado'
-  return 'Baixo risco'
+/**
+ * Flash (não lite): a análise estruturada com correlações pede mais raciocínio.
+ * A família 2.5 não está mais disponível para chaves novas — sobrescreva via
+ * INSIGHTS_MODEL se precisar fixar outra versão.
+ */
+const INSIGHTS_MODEL = process.env.INSIGHTS_MODEL || 'gemini-3.8-flash'
+
+const MODULE_DESCRIPTIONS: Record<string, string> = {
+  hse: 'HSE (riscos psicossociais no trabalho) — escala 0–4, MAIOR = PIOR. ≥2,5 Alto risco · ≥1,5 Risco moderado · <1,5 Baixo risco. Domínios: Demandas, Controle, Apoio da Liderança, Apoio dos Colegas, Relacionamentos, Cargo, Comunicação e Mudanças.',
+  ietr: 'IETR (trabalho remoto/digital) — escala 1–5, MAIOR = MELHOR. ≥4 Condição adequada · ≥3 Zona de atenção · <3 Situação de risco. Respondido apenas por quem trabalha remotamente.',
+  saude_mental: 'Saúde Mental — Índice 0–10, MAIOR = MELHOR (≥9 Excelente · ≥7 Bom · ≥5 Regular · <5 Insatisfatório). Componentes: estresse, sintomas depressivos, tabaco, álcool, dependência de internet, rede de apoio, percepção de saúde, qualidade de vida. Qualquer indicador de risco de suicídio divide o índice por 2.',
+  sociodemografico: 'Sociodemográfico — perfil dos respondentes (sem nota).',
 }
 
-function classifyRemote(avg: number) {
-  if (avg >= 4) return 'Condição adequada'
-  if (avg >= 3) return 'Zona de atenção'
-  return 'Situação de risco'
+function fmt(v: number | null | undefined, d = 2) {
+  return v === null || v === undefined ? 'sem dados' : v.toFixed(d).replace('.', ',')
 }
 
-type CollabRow = { id: string; gender: string | null; race_color: string | null; area: string | null; role: string | null; employment_type: string | null }
-type ResponseRow = {
-  collaborator_id: string
-  hse_domains: unknown
-  hse_class: string | null
-  hse_score: unknown
-  remote_domains: unknown
-  remote_class: string | null
-  remote_score: unknown
-}
-type DomainStat = { domain: string; avg: number; classification: string }
-type GroupStat = { group: string; avgHse: number | null; hseClass: string | null; count: number; avgRemote: number | null; remoteClass: string | null; remoteCount: number }
-type CrossAnalysis = Record<string, GroupStat[]>
+function buildPrompt(e: InsightsEvidence, filterDesc: string): string {
+  const h = e.highlights
+  const lines: string[] = []
 
-const MIN_CROSS_GROUP_SIZE = 5
-const DIMENSION_LABELS: Record<string, string> = {
-  area: 'Área',
-  role: 'Cargo',
-  gender: 'Gênero',
-  race_color: 'Cor',
-  employment_type: 'Vínculo',
-}
+  lines.push(`## Escopo\n${filterDesc}\nColaboradores: ${e.scope.total_collaborators} · Respondentes: ${e.scope.total_answered} · Adesão: ${fmt(e.scope.response_rate, 1)}%`)
+  lines.push(`Módulos ativos:\n${e.scope.modules.map((m) => `- ${MODULE_DESCRIPTIONS[m] ?? m}`).join('\n')}`)
 
-function accumulateDomains(
-  domainsField: unknown,
-  accum: Record<string, { sum: number; count: number }>,
-) {
-  // domains are stored as Array<{ domain, weight, score, weightedScore }>
-  if (!Array.isArray(domainsField)) return
-  for (const d of domainsField as Array<{ domain: string; score: number }>) {
-    if (!d?.domain || typeof d.score !== 'number') continue
-    if (!accum[d.domain]) accum[d.domain] = { sum: 0, count: 0 }
-    accum[d.domain].sum += d.score
-    accum[d.domain].count++
-  }
-}
-
-function calcHseMetrics(responses: ResponseRow[]) {
-  const domainAccum: Record<string, { sum: number; count: number }> = {}
-  const classCount: Record<string, number> = {}
-  let totalScore = 0
-  let count = 0
-
-  for (const r of responses) {
-    if (typeof r.hse_score === 'number') { totalScore += r.hse_score; count++ }
-    if (r.hse_class) classCount[r.hse_class] = (classCount[r.hse_class] ?? 0) + 1
-    accumulateDomains(r.hse_domains, domainAccum)
+  if (h.responses_by_day.length > 0) {
+    const peak = h.responses_by_day.reduce((a, b) => (b.count > a.count ? b : a))
+    lines.push(`## Coleta\nPeríodo: ${h.first_response_at?.slice(0, 10)} a ${h.last_response_at?.slice(0, 10)} · ${h.responses_by_day.length} dias com respostas · pico em ${peak.date} (${peak.count} respostas).`)
   }
 
-  const avgScore = count > 0 ? totalScore / count : null
-  const domainAvgs: DomainStat[] = Object.entries(domainAccum)
-    .map(([domain, { sum, count }]) => ({ domain, avg: Math.round((sum / count) * 100) / 100, classification: classifyHse(sum / count) }))
-    .sort((a, b) => b.avg - a.avg)
-
-  return { avgScore, domainAvgs, classCount }
-}
-
-function calcRemoteMetrics(responses: ResponseRow[], remoteIds: Set<string>) {
-  const domainAccum: Record<string, { sum: number; count: number }> = {}
-  const classCount: Record<string, number> = {}
-  let totalScore = 0
-  let count = 0
-
-  for (const r of responses) {
-    if (!remoteIds.has(r.collaborator_id)) continue
-    if (typeof r.remote_score === 'number') { totalScore += r.remote_score; count++ }
-    if (r.remote_class) classCount[r.remote_class] = (classCount[r.remote_class] ?? 0) + 1
-    accumulateDomains(r.remote_domains, domainAccum)
+  if (h.hse) {
+    lines.push([
+      `## HSE`,
+      `Média geral: ${fmt(h.hse.avg_score)} (${h.hse.classification}) · alto risco: ${h.hse.high_risk} de ${h.hse.respondents}`,
+      `Distribuição: ${h.hse.class_distribution.map((c) => `${c.name} ${c.value}`).join(', ')}`,
+      `Domínios (do pior ao melhor): ${h.hse.domains.map((d) => `${d.name} ${fmt(d.avg_score)} (${d.classification})`).join('; ')}`,
+      `Questões mais críticas: ${h.hse.critical_questions.map((q) => `[${q.code} · ${q.domain}] "${q.text}" média ${fmt(q.avg_score)}, ${fmt(q.high_risk_pct, 0)}% em alto risco`).join('; ')}`,
+    ].join('\n'))
   }
 
-  const avgScore = count > 0 ? totalScore / count : null
-  const domainAvgs: DomainStat[] = Object.entries(domainAccum)
-    .map(([domain, { sum, count }]) => ({ domain, avg: Math.round((sum / count) * 100) / 100, classification: classifyRemote(sum / count) }))
-    .sort((a, b) => a.avg - b.avg)
-
-  return { avgScore, domainAvgs, classCount }
-}
-
-function calcDemographics(collabs: CollabRow[]) {
-  const genderCount: Record<string, number> = {}
-  const raceCount: Record<string, number> = {}
-  for (const c of collabs) {
-    if (c.gender) genderCount[c.gender] = (genderCount[c.gender] ?? 0) + 1
-    if (c.race_color) raceCount[c.race_color] = (raceCount[c.race_color] ?? 0) + 1
-  }
-  const topGenders = Object.entries(genderCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
-  const topRaces = Object.entries(raceCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
-  return { topGenders, topRaces }
-}
-
-type AccumMap = Record<string, { hseSum: number; hseCount: number; remoteSum: number; remoteCount: number }>
-
-function accumulateGroupScore(
-  r: ResponseRow,
-  collab: CollabRow,
-  dim: 'area' | 'role' | 'gender' | 'race_color' | 'employment_type',
-  groupData: AccumMap,
-  remoteIds: Set<string>,
-) {
-  const groupKey = collab[dim] ?? 'Não informado'
-  if (!groupData[groupKey]) groupData[groupKey] = { hseSum: 0, hseCount: 0, remoteSum: 0, remoteCount: 0 }
-  if (typeof r.hse_score === 'number') {
-    groupData[groupKey].hseSum += r.hse_score
-    groupData[groupKey].hseCount++
-  }
-  if (remoteIds.has(r.collaborator_id) && typeof r.remote_score === 'number') {
-    groupData[groupKey].remoteSum += r.remote_score
-    groupData[groupKey].remoteCount++
-  }
-}
-
-function buildGroupStats(groupData: AccumMap): GroupStat[] {
-  return Object.entries(groupData)
-    .filter(([, d]) => d.hseCount >= MIN_CROSS_GROUP_SIZE)
-    .map(([group, d]) => {
-      const avgHse = d.hseCount > 0 ? Math.round((d.hseSum / d.hseCount) * 100) / 100 : null
-      const avgRemote = d.remoteCount > 0 ? Math.round((d.remoteSum / d.remoteCount) * 100) / 100 : null
-      return {
-        group,
-        avgHse,
-        hseClass: avgHse === null ? null : classifyHse(avgHse),
-        count: d.hseCount,
-        avgRemote,
-        remoteClass: avgRemote === null ? null : classifyRemote(avgRemote),
-        remoteCount: d.remoteCount,
-      }
-    })
-    .sort((a, b) => (b.avgHse ?? 0) - (a.avgHse ?? 0))
-}
-
-function calcCrossAnalysis(
-  collabs: CollabRow[],
-  responses: ResponseRow[],
-  remoteIds: Set<string>,
-): CrossAnalysis {
-  const collabMap = new Map(collabs.map((c) => [c.id, c]))
-  const dims: Array<'area' | 'role' | 'gender' | 'race_color' | 'employment_type'> =
-    ['area', 'role', 'gender', 'race_color', 'employment_type']
-  const result: CrossAnalysis = {}
-
-  for (const dim of dims) {
-    const groupData: AccumMap = {}
-    for (const r of responses) {
-      const collab = collabMap.get(r.collaborator_id)
-      if (collab) accumulateGroupScore(r, collab, dim, groupData, remoteIds)
-    }
-    const groups = buildGroupStats(groupData)
-    if (groups.length > 0) result[dim] = groups
+  if (h.remote && h.remote.respondents > 0) {
+    lines.push([
+      `## IETR (trabalho remoto)`,
+      `Respondentes: ${h.remote.respondents} (${fmt((h.remote.respondents / Math.max(1, e.scope.total_answered)) * 100, 0)}% dos respondentes) · média ${fmt(h.remote.avg_score)} (${h.remote.classification})`,
+      `Distribuição: ${h.remote.class_distribution.map((c) => `${c.name} ${c.value}`).join(', ')}`,
+      `Domínios (do pior ao melhor): ${e.remote_domains.map((d) => `${d.name} ${fmt(d.avg_score)}`).join('; ')}`,
+    ].join('\n'))
   }
 
-  return result
-}
+  if (h.mental_health && e.mental_health_detail) {
+    const mh = h.mental_health
+    const d = e.mental_health_detail
+    const p = (n: number) => `${fmt((n / Math.max(1, mh.respondents)) * 100, 1)}%`
+    lines.push([
+      `## Saúde Mental`,
+      `Índice médio: ${fmt(mh.avg_index)} (${mh.classification}) · distribuição: ${mh.class_distribution.map((c) => `${c.name} ${c.value}`).join(', ')}`,
+      `Indicadores de risco de suicídio: ${mh.suicide_at_risk} pessoas (${fmt(mh.suicide_pct, 1)}%) — tema sensível: recomende acolhimento e protocolo, nunca exposição.`,
+      `Estresse grave: ${p(mh.severe_stress)} · sintomas depressivos moderados/graves: ${p(mh.depressive_moderate_severe)} · sem rede de apoio: ${p(mh.no_support)} · álcool em padrão binge: ${p(mh.binge)}`,
+      `Percepção de saúde média: ${fmt(mh.avg_health_score, 1)}/10 · qualidade de vida média: ${fmt(mh.avg_life_quality, 1)}/10`,
+      `Componentes (nota média 0–10, do pior ao melhor): ${d.components.map((c) => `${c.label} ${fmt(c.avg_score, 1)}`).join('; ')}`,
+      `Sintomas de estresse mais citados: ${d.stress_symptoms.map((i) => `${i.label} ${fmt(i.pct, 0)}%`).join('; ')}`,
+      `Fontes de estresse mais citadas: ${d.stress_sources.map((i) => `${i.label} ${fmt(i.pct, 0)}%`).join('; ')}`,
+      `Sintomas depressivos mais citados: ${d.depression_symptoms.map((i) => `${i.label} ${fmt(i.pct, 0)}%`).join('; ')}`,
+      `Rede de apoio: ${d.support_sources.map((i) => `${i.label} ${fmt(i.pct, 0)}%`).join('; ')}`,
+      d.substances.length > 0 ? `Substâncias/medicações (30 dias): ${d.substances.map((i) => `${i.label} ${fmt(i.pct, 0)}%`).join('; ')}` : '',
+      d.disaster_exposed_pct !== null ? `Exposição a desastre natural/ambiental: ${fmt(d.disaster_exposed_pct, 0)}%` : '',
+    ].filter(Boolean).join('\n'))
+  }
 
-function buildPrompt(params: {
-  filterDesc: string
-  totalCollabs: number
-  totalAnswered: number
-  responseRate: number
-  hseAvgScore: number | null
-  hseDomainAvgs: DomainStat[]
-  hseClassCount: Record<string, number>
-  remoteCount: number
-  remoteAvgScore: number | null
-  remoteDomainAvgs: DomainStat[]
-  remoteClassCount: Record<string, number>
-  topGenders: [string, number][]
-  topRaces: [string, number][]
-  crossAnalysis: CrossAnalysis
-}) {
-  const {
-    filterDesc, totalCollabs, totalAnswered, responseRate,
-    hseAvgScore, hseDomainAvgs, hseClassCount,
-    remoteCount, remoteAvgScore, remoteDomainAvgs, remoteClassCount,
-    topGenders, topRaces, crossAnalysis,
-  } = params
+  if (h.segments.length > 0) {
+    lines.push(`## Segmentos (grupos com ≥5 pessoas; índices só com ≥5 respostas)\n${h.segments.map((s) =>
+      `${s.label}:\n${s.groups.map((g) => `  - ${g.name}: adesão ${fmt(g.pct, 0)}% (${g.answered}/${g.total})${g.hse_avg !== null ? ` · HSE ${fmt(g.hse_avg)} (${g.hse_class})` : ''}${g.mh_avg !== null ? ` · Saúde Mental ${fmt(g.mh_avg, 1)}` : ''}`).join('\n')}`,
+    ).join('\n')}`)
+  }
 
-  const remoteRate = totalAnswered > 0 ? Math.round((remoteCount / totalAnswered) * 100) : 0
+  if (e.correlations.length > 0) {
+    lines.push(`## Correlações de Pearson calculadas (por respondente)\n${e.correlations.map((c) =>
+      `- id="${c.id}": ${c.x} × ${c.y} → r=${fmt(c.r)} (${c.strength}, n=${c.n}). ${c.reading}`).join('\n')}`)
+  }
 
-  const hseDomainLines = hseDomainAvgs.length > 0
-    ? hseDomainAvgs.map(d => `  - ${d.domain}: média ${d.avg} (${d.classification})`).join('\n')
-    : '  - Sem dados'
-  const remoteDomainLines = remoteDomainAvgs.length > 0
-    ? remoteDomainAvgs.map(d => `  - ${d.domain}: média ${d.avg} (${d.classification})`).join('\n')
-    : '  - Sem dados'
-  const hseClassLines = Object.entries(hseClassCount).map(([cls, n]) => `  - ${cls}: ${n} respondentes`).join('\n')
-  const remoteClassLines = Object.entries(remoteClassCount).length > 0
-    ? Object.entries(remoteClassCount).map(([cls, n]) => `  - ${cls}: ${n} respondentes`).join('\n')
-    : '  - Sem dados'
-  const genderLines = topGenders.map(([g, n]) => `  - ${g}: ${n}`).join('\n')
-  const raceLines = topRaces.map(([r, n]) => `  - ${r}: ${n}`).join('\n')
-  const hseScoreStr = hseAvgScore === null ? 'Sem dados' : `${hseAvgScore.toFixed(2)} (${classifyHse(hseAvgScore)})`
-  const remoteScoreStr = remoteAvgScore === null ? 'Sem dados' : `${remoteAvgScore.toFixed(2)} (${classifyRemote(remoteAvgScore)})`
+  if (e.comparisons.length > 0) {
+    lines.push(`## Comparações entre grupos\n${e.comparisons.map((c) =>
+      `- id="${c.id}": ${c.metric} (${c.scale}) — ${c.a.label}: ${fmt(c.a.mean)} (n=${c.a.n}) vs ${c.b.label}: ${fmt(c.b.mean)} (n=${c.b.n}); diferença ${fmt(c.diff)}`).join('\n')}`)
+  }
 
-  const crossLines = Object.entries(crossAnalysis)
-    .filter(([, groups]) => groups.length > 0)
-    .map(([dim, groups]) => {
-      const label = DIMENSION_LABELS[dim] ?? dim
-      const top = groups.slice(0, 6)
-      const rows = top.map((g) => {
-        const hseStr = g.avgHse === null ? 'sem dados' : `HSE ${g.avgHse} (${g.hseClass})`
-        const remoteStr = g.avgRemote === null ? '' : ` | IETR ${g.avgRemote} (${g.remoteClass}, N=${g.remoteCount})`
-        return `  - ${g.group}: ${hseStr}${remoteStr} — ${g.count} respondentes`
-      })
-      const extra = groups.length > 6 ? [`  (+ ${groups.length - 6} outros grupos)`] : []
-      return [`Por ${label}:`, ...rows, ...extra].join('\n')
-    })
-    .join('\n\n')
+  return `Você é a Lumen AI, analista sênior de saúde mental e riscos psicossociais no trabalho (NR-1, ISO 45003). Analise o mapeamento abaixo e produza um relatório estruturado em português do Brasil, para gestores de RH e liderança.
 
-  const areaGroups = crossAnalysis['area'] ?? []
-  const areaLines = areaGroups.length > 0
-    ? areaGroups.map((g) => {
-        const hseStr = g.avgHse === null ? 'sem dados' : `HSE ${g.avgHse.toFixed(2)} (${g.hseClass})`
-        const remoteStr = g.avgRemote === null ? '' : ` | IETR ${g.avgRemote.toFixed(2)} (${g.remoteClass}, N=${g.remoteCount})`
-        return `  - ${g.group}: ${hseStr}${remoteStr} — ${g.count} respondentes`
-      }).join('\n')
-    : '  - Dados insuficientes (nenhuma área com ≥5 respondentes)'
+Regras:
+1. Use SOMENTE os números fornecidos. Não invente estatísticas, grupos nem correlações. Cite números no formato brasileiro (vírgula decimal).
+2. Atenção ao sentido das escalas: no HSE maior = pior; no IETR e na Saúde Mental maior = melhor.
+3. Correlação não é causalidade: use "está associado a", "tende a". Ignore correlações desprezíveis (|r| < 0,1) e não dê peso a fracas sem ressalva.
+4. Em correlation_insights, use exatamente os ids fornecidos (de correlações ou comparações). Priorize as 4 a 6 mais relevantes.
+5. Faça análises cruzadas entre módulos (ex.: como riscos psicossociais se relacionam com saúde mental, trabalho remoto, rede de apoio, fontes de estresse).
+6. Nunca sugira identificar indivíduos. Sobre risco de suicídio, recomende acolhimento, canal de apoio psicológico e protocolo — com linguagem cuidadosa.
+7. module_analyses: inclua apenas módulos ativos (${e.scope.modules.filter((m) => m !== 'sociodemografico').join(', ') || 'nenhum'}) e "adesao".
+8. Seja específico e acionável; evite generalidades. Tom profissional, direto, sem jargão excessivo.
 
-  return `Você é um especialista em saúde e segurança psicossocial no trabalho. Analise os dados do mapeamento de saúde e bem-estar dos colaboradores e gere insights práticos em português brasileiro.
-
-IMPORTANTE: Neste sistema há dois módulos de avaliação distintos:
-- Módulo HSE (Health, Safety & Environment): avalia riscos psicossociais no trabalho. Escala 0–4, onde valores ALTOS = maior risco.
-- Módulo IETR (Instrumento de Avaliação do Trabalho Remoto): avalia condições do home office. Escala 1–5, onde valores BAIXOS = maior risco.
-Cada módulo possui domínios internos (ex: Demandas, Controle, Relacionamentos no HSE; Autonomia, Vínculos no IETR).
-
-## Contexto
-${filterDesc}
-- Total de colaboradores: ${totalCollabs}
-- Respondentes do módulo HSE: ${totalAnswered} (${responseRate}% do total)
-- Respondentes do módulo IETR: ${remoteCount} de ${totalAnswered} (${remoteRate}% dos respondentes HSE)
-
-## Módulo HSE — Saúde e Segurança no Trabalho
-Escala 0–4: valores ALTOS = maior risco psicossocial
-Classificação: ≥2.5 = Alto risco | ≥1.5 = Risco moderado | <1.5 = Baixo risco
-Score médio geral HSE: ${hseScoreStr}
-
-Distribuição por classificação:
-${hseClassLines || '  - Sem dados'}
-
-Scores médios por domínio do módulo HSE (ordem decrescente de risco):
-${hseDomainLines}
-
-## Módulo IETR — Trabalho Remoto
-Escala 1–5: valores BAIXOS = maior risco / piores condições
-Classificação: ≥4.0 = Condição adequada | ≥3.0 = Zona de atenção | <3.0 = Situação de risco
-Score médio geral IETR: ${remoteScoreStr}
-Contexto: ${remoteCount} de ${totalAnswered} respondentes HSE responderam o módulo IETR (${remoteRate}%). A análise é proporcional a esse grupo.
-
-Distribuição por classificação:
-${remoteClassLines}
-
-Scores médios por domínio do módulo IETR (ordem crescente — menores = pior):
-${remoteDomainLines}
-
-## Perfil Demográfico
-Gênero:
-${genderLines || '  - Sem dados'}
-Cor:
-${raceLines || '  - Sem dados'}
-
-## Cruzamento Demográfico — Score HSE médio por grupo (grupos com ≥5 respondentes, ordem decrescente de risco)
-${crossLines || '  - Dados insuficientes para cruzamento demográfico'}
-
-## Riscos por Área (ISO 45003 — todos os grupos com ≥5 respondentes, ordem decrescente de risco HSE)
-${areaLines}
-
-## Instruções para a resposta
-1. Seja direto e objetivo. Use parágrafos curtos.
-2. Estruture a resposta exatamente nas seguintes seções com títulos em negrito:
-   **Visão Geral**
-   **Pontos de Atenção Prioritários**
-   **Trabalho Remoto** (inclua apenas se remoteCount > 0)
-   **Disparidades por Grupo** (inclua apenas se houver variações relevantes entre grupos — destaque os grupos de maior e menor risco e possíveis disparidades por gênero, cor, área ou cargo)
-   **Recomendações Práticas** (mínimo 3 ações concretas numeradas; considere os grupos em situação mais crítica)
-   **Plano de Ação ISO 45003** (com base nos dados de risco por área, elabore prioridades de intervenção para as áreas de maior risco — cite nível de prioridade, principais fatores de risco identificados para cada área e intervenções práticas alinhadas à ISO 45003: controles organizacionais, participação dos trabalhadores, suporte à liderança e acompanhamento contínuo; use subseções ou lista por área; inclua apenas áreas com ≥5 respondentes)
-3. Refira-se a Demandas, Controle, Relacionamentos etc. como domínios dentro dos módulos HSE e IETR.
-4. Destaque nomes de domínios críticos, grupos de risco elevado e áreas prioritárias em negrito.
-5. Quando mencionar o módulo IETR, contextualize que representa ${remoteRate}% dos respondentes HSE.
-6. Use linguagem clara para gestores de RH, sem jargões excessivos.
-7. Limite a resposta a aproximadamente 900 palavras.`
+${lines.join('\n\n')}`
 }
 
 export async function GET(request: NextRequest) {
@@ -330,7 +145,10 @@ export async function GET(request: NextRequest) {
 
   let collabQuery = db
     .selectFrom('collaborators')
-    .select(['id', 'area', 'role', 'gender', 'race_color', 'employment_type'])
+    .select([
+      'id', 'area', 'role', 'employment_type', 'gender', 'race_color', 'birth_date', 'has_answered',
+      'education_level', 'marital_status', 'disability', 'which_disability', 'extra_fields',
+    ])
     .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
 
@@ -341,74 +159,71 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores.' }, { status: 500 })
   }
 
-  const allIds = collabs.map((c) => c.id)
-  if (allIds.length === 0) {
+  if (collabs.length === 0) {
     return NextResponse.json({ error: 'Nenhum colaborador encontrado para os filtros selecionados.' }, { status: 404 })
   }
-
-  // has_answered is on collaborators, not responses — filter collaborator IDs first
-  let answeredCollabs
-  try {
-    answeredCollabs = await db
-      .selectFrom('collaborators')
-      .select('id')
-      .where('mapping_id', '=', mappingScope.mappingId)
-      .where('id', 'in', allIds)
-      .where('has_answered', '=', true)
-      .execute()
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar colaboradores respondentes.' }, { status: 500 })
-  }
-
-  const answeredIds = answeredCollabs.map((c) => c.id)
 
   let responses
   try {
     responses = await db
       .selectFrom('responses')
-      .select(['collaborator_id', 'hse_domains', 'hse_class', 'hse_score', 'remote_domains', 'remote_class', 'remote_score'])
-      .where('collaborator_id', 'in', answeredIds)
+      .select([
+        'collaborator_id', 'submitted_at', 'hse_score', 'hse_class', 'hse_domains', 'answers',
+        'remote_score', 'remote_class', 'remote_domains', 'mental_health_answers', 'mental_health_derived',
+      ])
+      .where('collaborator_id', 'in', collabs.map((c) => c.id))
       .execute()
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Erro ao buscar respostas.' }, { status: 500 })
   }
 
-  const totalCollabs = allIds.length
-  const totalAnswered = answeredIds.length
-  const responseRate = Math.round((totalAnswered / totalCollabs) * 100)
+  if (responses.length === 0) {
+    return NextResponse.json({ error: 'Ainda não há respostas suficientes para gerar insights neste recorte.' }, { status: 422 })
+  }
 
-  // Remote workers = respondents who have remote_score data (IETR is only shown to remote workers)
-  const remoteIds = new Set(
-    (responses ?? [])
-      .filter((r) => r.remote_score !== null && r.remote_score !== undefined)
-      .map((r) => r.collaborator_id)
-  )
-
-  const hse = calcHseMetrics(responses ?? [])
-  const remote = calcRemoteMetrics(responses ?? [], remoteIds)
-  const { topGenders, topRaces } = calcDemographics(collabs ?? [])
-  const crossAnalysis = calcCrossAnalysis(collabs ?? [], responses ?? [], remoteIds)
-
-  const filterPairs = Object.entries(filters).map(([k, v]) => `${k}=${v}`).join(', ')
-  const filterDesc = Object.keys(filters).length > 0 ? `Filtros ativos: ${filterPairs}` : 'Sem filtros ativos (toda a organização)'
-
-  const prompt = buildPrompt({
-    filterDesc, totalCollabs, totalAnswered, responseRate,
-    hseAvgScore: hse.avgScore,
-    hseDomainAvgs: hse.domainAvgs,
-    hseClassCount: hse.classCount,
-    remoteCount: remoteIds.size,
-    remoteAvgScore: remote.avgScore,
-    remoteDomainAvgs: remote.domainAvgs,
-    remoteClassCount: remote.classCount,
-    topGenders, topRaces, crossAnalysis,
+  const collabById = new Map(collabs.map((c) => [c.id, c as unknown as CollaboratorFieldSource]))
+  const evidence = buildInsightsEvidence({
+    collaborators: collabs.map((c) => ({ id: c.id, has_answered: c.has_answered, gender: c.gender })),
+    responses: responses as unknown as HighlightResponseRow[],
+    modules: mappingConfig.modules,
+    filters,
+    hseQuestionTextOverrides: mappingConfig.hse_question_text_overrides,
+    segments: mappingConfig.dashboard_filters.map((key) => ({
+      key,
+      label: mappingConfig.field_labels[key] ?? key,
+      valueOf: (id: string) => {
+        const row = collabById.get(id)
+        return row ? getCollaboratorFieldValue(row, key) : null
+      },
+    })),
   })
 
-  const { text } = await generateText({ model: google('gemini-2.5-flash-lite'), prompt })
+  const filterPairs = Object.entries(filters).map(([k, v]) => `${mappingConfig.field_labels[k] ?? k} = ${v}`)
+  const filterDesc = filterPairs.length > 0 ? `Recorte filtrado: ${filterPairs.join(', ')}` : 'Sem filtros (toda a organização mapeada)'
 
-  return NextResponse.json({
-    insights: text,
+  let analysis: InsightsAnalysis
+  try {
+    const { output } = await generateText({
+      model: google(INSIGHTS_MODEL),
+      output: Output.object({ schema: jsonSchema<InsightsAnalysis>(INSIGHTS_JSON_SCHEMA as never) }),
+      prompt: buildPrompt(evidence, filterDesc),
+    })
+    analysis = output
+  } catch (err) {
+    console.error('[insights] falha ao gerar análise', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'A IA não conseguiu concluir a análise agora. Tente novamente em instantes.' }, { status: 502 })
+  }
+
+  const payload: InsightsPayload = {
+    version: 2,
     generated_at: new Date().toISOString(),
-    meta: { total_collaborators: totalCollabs, total_answered: totalAnswered, response_rate: responseRate, filters },
-  })
+    model: INSIGHTS_MODEL,
+    evidence: {
+      ...evidence,
+      scope: { ...evidence.scope, filters: Object.fromEntries(Object.entries(filters).map(([k, v]) => [mappingConfig.field_labels[k] ?? k, v])) },
+    },
+    analysis,
+  }
+
+  return NextResponse.json(payload)
 }

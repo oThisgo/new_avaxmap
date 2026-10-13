@@ -847,7 +847,7 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
     if (!requiresIetr) {
       return (
         <p className="rounded-lg px-4 py-3 text-sm" style={{ border: `1px solid ${T.border}`, backgroundColor: T.surface2, color: T.textMuted }}>
-          Você informou que não trabalha remotamente. O módulo IETR será considerado opcional nesta submissão.
+          Algumas questões deste módulo serão apresentadas de acordo com a sua modalidade de trabalho e com as tecnologias utilizadas em suas atividades.
         </p>
       )
     }
@@ -908,8 +908,8 @@ export function IetrForm({ thankYouPath = '/agradecimento', mappingSlug }: Reado
   if (hasIetrModule) {
     moduleSections.push({
       id: 'ietr',
-      title: 'Módulo IETR',
-      subtitle: 'Questões sobre experiência de trabalho remoto',
+      title: 'Experiência de Trabalho Digital',
+      subtitle: 'Questões sobre o uso de tecnologias digitais e as diferentes formas de trabalho mediadas por tecnologia.',
       content: renderIetrContent(),
     })
   }

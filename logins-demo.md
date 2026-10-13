@@ -1,6 +1,6 @@
 Owner (dashboard cliente)
-Email: owner@cliente-demo.com
-Senha: Owner123!
+Email: contas@beetouch.com.br
+Senha: BeeTouch2026
 Login: /manager/login
 
 Gestor (dashboard do mapeamento)

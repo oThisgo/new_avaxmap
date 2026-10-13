@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/pool'
 import { requireMappingAccess } from '@/lib/auth/mapping-scope'
 import { normalizeMappingConfig } from '@/lib/mapping/config'
-import { parseCollaboratorFilters, applyCollaboratorFilters } from '@/lib/mapping/collaborator-fields'
+import {
+  parseCollaboratorFilters,
+  applyCollaboratorFilters,
+  getCollaboratorFieldValue,
+  type CollaboratorFieldSource,
+} from '@/lib/mapping/collaborator-fields'
+import { computeMappingHighlights, type HighlightResponseRow } from '@/lib/analytics/mapping-highlights'
 
 export async function GET(request: NextRequest) {
   const mappingScope = await requireMappingAccess(request)
@@ -19,10 +25,15 @@ export async function GET(request: NextRequest) {
   const mappingConfig = normalizeMappingConfig(mapping?.config)
   const filters = parseCollaboratorFilters(request.nextUrl.searchParams, mappingConfig.dashboard_filters)
 
-  // Todos os colaboradores com filtros (para total esperado e distribuições)
+  // Todos os colaboradores com filtros (para total esperado e distribuições).
+  // Os demais campos alimentam os segmentos (adesão/risco por unidade, função...)
+  // dos destaques — mesmas chaves dos filtros do dashboard.
   let collabQuery = db
     .selectFrom('collaborators')
-    .select(['id', 'area', 'role', 'employment_type'])
+    .select([
+      'id', 'area', 'role', 'employment_type', 'gender', 'race_color', 'birth_date', 'has_answered',
+      'education_level', 'marital_status', 'disability', 'which_disability', 'extra_fields',
+    ])
     .where('mapping_id', '=', mappingScope.mappingId)
   collabQuery = applyCollaboratorFilters(collabQuery, filters)
   const allCollabs = await collabQuery.execute()
@@ -72,6 +83,7 @@ export async function GET(request: NextRequest) {
       by_area,
       by_role,
       by_employment_type,
+      highlights: null,
     })
   }
 
@@ -79,7 +91,10 @@ export async function GET(request: NextRequest) {
   try {
     responses = await db
       .selectFrom('responses')
-      .select('submitted_at')
+      .select([
+        'collaborator_id', 'submitted_at', 'hse_score', 'hse_class', 'hse_domains', 'answers',
+        'remote_score', 'remote_class', 'mental_health_answers', 'mental_health_derived',
+      ])
       .where('collaborator_id', 'in', collaboratorIds)
       .orderBy('submitted_at', 'asc')
       .execute()
@@ -101,6 +116,22 @@ export async function GET(request: NextRequest) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, count]) => ({ date, count }))
 
+  const collabById = new Map(allCollabs.map((c) => [c.id, c as unknown as CollaboratorFieldSource]))
+  const highlights = computeMappingHighlights({
+    collaborators: allCollabs.map((c) => ({ id: c.id, has_answered: c.has_answered, gender: c.gender })),
+    responses: responses as unknown as HighlightResponseRow[],
+    modules: mappingConfig.modules,
+    hseQuestionTextOverrides: mappingConfig.hse_question_text_overrides,
+    segments: mappingConfig.dashboard_filters.map((key) => ({
+      key,
+      label: mappingConfig.field_labels[key] ?? key,
+      valueOf: (id: string) => {
+        const row = collabById.get(id)
+        return row ? getCollaboratorFieldValue(row, key) : null
+      },
+    })),
+  })
+
   return NextResponse.json({
     total_responses: total,
     total_expected,
@@ -109,5 +140,6 @@ export async function GET(request: NextRequest) {
     by_area,
     by_role,
     by_employment_type,
+    highlights,
   })
 }

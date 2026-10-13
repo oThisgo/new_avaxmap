@@ -9,6 +9,7 @@ import { BRAND_ASSETS, BRAND_COLORS } from '@/lib/brand'
 import { useThemeTokens } from '@/lib/theme'
 import { isRichTextEmpty, sanitizeRichTextHtml } from '@/lib/tcle/rich-text'
 import { normalizeLogoUrl } from '@/lib/mapping/logo'
+import { getCredentialCopy, type CredentialCopy } from '@/lib/mapping/credential-copy'
 import { MappingLogo } from '@/components/mapping/MappingLogo'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -38,6 +39,11 @@ export default function MappingCollaboratorLoginPage() {
   const [tcleLoading, setTcleLoading] = useState(true)
   const [tcleLoadError, setTcleLoadError] = useState('')
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [credentialCopy, setCredentialCopy] = useState<CredentialCopy>({
+    prompt: 'Insira sua credencial de acesso para continuar',
+    label: 'Credencial',
+    placeholder: 'Credencial de acesso',
+  })
 
   const tcleHtml = useMemo(() => sanitizeRichTextHtml(tcleText ?? ''), [tcleText])
   const tcleRequired = !isRichTextEmpty(tcleHtml)
@@ -55,6 +61,11 @@ export default function MappingCollaboratorLoginPage() {
       .then((data) => {
         if (!active) return
         setLogoUrl(normalizeLogoUrl(data?.mapping?.logo_url))
+        const config = data?.config ?? {}
+        const columnMapping = config.column_mapping && typeof config.column_mapping === 'object' ? config.column_mapping : {}
+        const columnDisplayNames = config.column_display_names && typeof config.column_display_names === 'object' ? config.column_display_names : {}
+        const credentialColumn = typeof config.credential_column === 'string' ? config.credential_column : null
+        setCredentialCopy(getCredentialCopy(columnMapping, credentialColumn, columnDisplayNames))
         const text = typeof data?.mapping?.tcle_text === 'string' ? data.mapping.tcle_text : ''
         const sanitized = sanitizeRichTextHtml(text)
         setTcleText(sanitized)
@@ -151,13 +162,13 @@ export default function MappingCollaboratorLoginPage() {
               Acesse a plataforma AVAX
             </h1>
             <p className="mb-8 text-sm" style={{ color: T.textMuted }}>
-              Insira sua credencial para continuar
+              {credentialCopy.prompt}
             </p>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="credential" className="text-sm font-medium" style={{ color: T.textMuted }}>
-                  Credencial
+                  {credentialCopy.label}
                 </label>
                 <Input
                   id="credential"
@@ -167,7 +178,7 @@ export default function MappingCollaboratorLoginPage() {
                   spellCheck={false}
                   value={credential}
                   onChange={(e) => setCredential(e.target.value)}
-                  placeholder="Credencial de acesso"
+                  placeholder={credentialCopy.placeholder}
                   disabled={loading}
                 />
               </div>

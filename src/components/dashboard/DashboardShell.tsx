@@ -190,7 +190,13 @@ export default function DashboardShell() {
     const modules = dashboardConfig.modules
     const list: Array<{ id: TabId; label: string }> = [{ id: 'overview', label: 'Visão Geral' }]
 
-    if (modules.includes('sociodemografico')) list.push({ id: 'demographics', label: 'Dados Demográficos' })
+    // Diferente de HSE/IETR/Saúde Mental, dados demográficos não vêm só do
+    // módulo sociodemográfico — colunas da base já marcadas como "dado
+    // demográfico" (ver column_profiles) alimentam a aba mesmo com o módulo
+    // desligado (que só para de perguntar ao colaborador; não apaga o que já
+    // vem pronto do CSV). Por isso a aba fica sempre visível, igual a
+    // Visão Geral/Insights, em vez de condicionada ao módulo.
+    list.push({ id: 'demographics', label: 'Dados Demográficos' })
     if (modules.includes('hse')) list.push({ id: 'hse', label: 'HSE por Domínio' })
     if (modules.includes('ietr')) list.push({ id: 'remote', label: 'Trabalho Remoto' })
     if (modules.includes('saude_mental')) list.push({ id: 'mental_health', label: 'Saúde Mental' })
