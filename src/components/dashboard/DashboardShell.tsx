@@ -85,7 +85,6 @@ export default function DashboardShell() {
   // Slug extraído da URL — síncrono, não depende de state ou cookie
   const slugFromPath = pathname?.match(/^\/mapeamento\/([^/]+)\/dashboard/)?.[1] ?? null
   const baseT = useThemeTokens()
-  const isDark = baseT.isDark
   const T = {
     ...baseT,
     inputBorder: baseT.border,
@@ -444,13 +443,12 @@ export default function DashboardShell() {
   }
 
   const activeCount = Object.values(filters).filter(Boolean).length
-  const reportRiskFilters = {
-    area: filters.area ?? '',
-    role: filters.role ?? '',
-    gender: filters.gender ?? '',
-    race_color: filters.race_color ?? '',
-    employment_type: filters.employment_type ?? '',
-  }
+  // Todos os filtros ativos do dashboard (inclusive colunas customizadas da base) pré-preenchem
+  // o recorte do relatório.
+  const reportRiskFilters = useMemo(
+    () => Object.fromEntries(Object.entries(filters).filter(([, v]) => v)),
+    [filters],
+  )
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: T.bg, color: T.text }}>
@@ -626,7 +624,7 @@ export default function DashboardShell() {
         </AnimatePresence>
       </main>
 
-      {reportRiskModalOpen && <ReportRiskModal filters={reportRiskFilters} theme={T} isDark={isDark} onClose={() => setReportRiskModalOpen(false)} />}
+      {reportRiskModalOpen && <ReportRiskModal filters={reportRiskFilters} onClose={() => setReportRiskModalOpen(false)} />}
     </div>
   )
 }
